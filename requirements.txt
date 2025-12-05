@@ -1,0 +1,6 @@
+streamlit
+pandas
+apify-client
+gspread
+oauth2client
+numpy
