@@ -240,7 +240,13 @@ def save_extra_results(sheet_name, data_list):
 
 # --- SAYFA VE MENÜ ---
 st.set_page_config(page_title="Tiktok Viral Takip", layout="wide")
-st.markdown("""<style>.stButton>button { width: 100%; border-radius: 5px; } .stDeployButton {display:none;} footer {visibility: hidden;} #MainMenu {visibility: visible;}</style>""", unsafe_allow_html=True)
+st.markdown("""<style>.stButton>button { width: 100%; border-radius: 5px; } .stDeployButton {display:none;} footer {visibility: hidden;} #MainMenu {visibility: visible;}
+            
+            [data-testid="stSidebar"] {
+        min-width: 350px; /* Burayı artırarak genişletebilirsin (Örn: 400px, 500px) */
+        max-width: 350px; /* Burayı da aynı yap ki sabit kalsın */
+    }
+            </style>""", unsafe_allow_html=True)
 
 if 'analyzed_data' not in st.session_state: st.session_state.analyzed_data = None
 if 'analysis_meta' not in st.session_state: st.session_state.analysis_meta = {}
