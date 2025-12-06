@@ -12,32 +12,6 @@ import numpy as np
 import random 
 import ast
 
-# --- SAYFA YAPILANDIRMASI (EN BAŞTA OLMALI) ---
-st.set_page_config(page_title="Tiktok Viral Takip", layout="wide")
-st.markdown("""<style>.stButton>button { width: 100%; border-radius: 5px; } .stDeployButton {display:none;} footer {visibility: hidden;} #MainMenu {visibility: visible;} [data-testid="stSidebar"] {min-width: 350px; max-width: 350px;}
-
-            
-            /* 4. MODÜL AYIRICI ÇİZGİLER (YENİ ÖZELLİK) */
-    /* Menüdeki her 2 elemanda bir altına çizgi çeker */
-    div[role="radiogroup"] > label:nth-child(2),
-    div[role="radiogroup"] > label:nth-child(4),
-    div[role="radiogroup"] > label:nth-child(6) {
-        border-bottom: 1px solid rgba(255, 255, 255, 0.2); /* Çizgi Rengi ve Şeffaflığı */
-        margin-bottom: 10px !important; /* Çizgi altı boşluk */
-        padding-bottom: 10px !important; /* Çizgi üstü boşluk */
-    }
-            </style>""", unsafe_allow_html=True)
-
-# --- SESSION STATE BAŞLATMA (HATAYI ÇÖZEN KISIM - EN ÜSTE ALINDI) ---
-if 'page' not in st.session_state: st.session_state.page = "Viral"
-if 'analyzed_data' not in st.session_state: st.session_state.analyzed_data = None
-if 'analysis_meta' not in st.session_state: st.session_state.analysis_meta = {}
-if 'transfer_url' not in st.session_state: st.session_state.transfer_url = ""
-if 'auto_start' not in st.session_state: st.session_state.auto_start = False
-if 'discovery_results' not in st.session_state: st.session_state.discovery_results = None
-if 'supplier_results' not in st.session_state: st.session_state.supplier_results = None
-if 'meta_results' not in st.session_state: st.session_state.meta_results = None
-
 # --- AYARLAR VE ŞİFRELER ---
 CREDENTIALS_FILE = "credentials.json"
 MASTER_SHEET_NAME = "Viral_Hunter_Master"
@@ -95,6 +69,43 @@ def init_master_sheet():
     except Exception as e:
         st.error(f"Google Sheet Hatası: '{MASTER_SHEET_NAME}' dosyası bulunamadı!")
         st.stop()
+
+# --- MALİYET HESAPLAMA FONKSİYONLARI (YENİ) ---
+def get_apify_usage_stats():
+    try:
+        # Kullanıcı bilgilerini çek
+        user_info = client.user().get()
+        limits = user_info.get('limits', {})
+        usage = user_info.get('usage', {})
+        
+        # Son 10 işlemi çek
+        runs = client.runs().list(limit=10, desc=True).items
+        
+        run_data = []
+        for run in runs:
+            # Aktör ismini bulmaya çalış (yoksa ID yaz)
+            actor_name = run.get('actId', 'Bilinmeyen')
+            if "clockworks" in actor_name or "tiktok" in actor_name: actor_name = "TikTok Scraper"
+            elif "google" in actor_name: actor_name = "Google Search"
+            
+            stats = run.get('stats', {})
+            # Maliyet hesabı (Apify'da 1 CU yaklaşık 4-5$ arası değişir, biz CU gösterelim)
+            compute_units = stats.get('computeUnits', 0)
+            status = run.get('status')
+            duration = (run.get('finishedAt', datetime.now()) - run.get('startedAt', datetime.now())).total_seconds()
+            
+            run_data.append({
+                "Tarih": run.get('startedAt'),
+                "Modül": actor_name,
+                "Durum": status,
+                "Süre (sn)": int(duration) if duration else 0,
+                "Tüketim (CU)": round(compute_units, 4)
+            })
+            
+        return limits, usage, pd.DataFrame(run_data)
+    except Exception as e:
+        st.error(f"Apify Verisi Alınamadı: {e}")
+        return None, None, pd.DataFrame()
 
 # --- ANALİZ VE SCRAPE FONKSİYONLARI ---
 def clean_text_for_query(text):
@@ -213,25 +224,16 @@ def generate_smart_analysis(df):
     analysis += f"- {date_comment}\n"
     return analysis, str(next_check_date)
 
-# --- YENİ: KARAR SKORU HESAPLAMA ---
 def calculate_commercial_score(viral_score, supplier_count, meta_count, engagement_rate):
     score = 0
-    # 1. Talep (Viral Skor) - Max 40 Puan
     if viral_score > 100: score += 40
     elif viral_score > 50: score += 30
     elif viral_score > 20: score += 15
-    
-    # 2. Tedarik (Lojistik) - Max 30 Puan
     if supplier_count > 5: score += 30
     elif supplier_count > 0: score += 20
-    
-    # 3. Pazar Kanıtı (Meta) - Max 20 Puan
     if meta_count > 0: score += 20
-    
-    # 4. Etkileşim (Kalite) - Max 10 Puan
     if engagement_rate > 5: score += 10
     elif engagement_rate > 2: score += 5
-    
     return score
 
 # --- KAYDETME FONKSİYONLARI ---
@@ -281,7 +283,34 @@ def save_extra_results(sheet_name, data_list):
         st.error(f"Kayıt Hatası: {e}")
         return False
 
-# --- SIDEBAR (MENÜ) ---
+# --- SAYFA VE MENÜ ---
+st.set_page_config(page_title="Tiktok Viral Takip", layout="wide")
+st.markdown("""
+<style>
+    .stButton>button { width: 100%; border-radius: 5px; } 
+    .stDeployButton {display:none;} 
+    footer {visibility: hidden;} 
+    #MainMenu {visibility: visible;} 
+    [data-testid="stSidebar"] {min-width: 350px; max-width: 350px;}
+    div[role="radiogroup"] > label:nth-child(2),
+    div[role="radiogroup"] > label:nth-child(4),
+    div[role="radiogroup"] > label:nth-child(6),
+    div[role="radiogroup"] > label:nth-child(8) {
+        border-bottom: 1px solid rgba(255, 255, 255, 0.2); 
+        margin-bottom: 10px !important; 
+        padding-bottom: 10px !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+if 'analyzed_data' not in st.session_state: st.session_state.analyzed_data = None
+if 'analysis_meta' not in st.session_state: st.session_state.analysis_meta = {}
+if 'transfer_url' not in st.session_state: st.session_state.transfer_url = ""
+if 'auto_start' not in st.session_state: st.session_state.auto_start = False
+if 'discovery_results' not in st.session_state: st.session_state.discovery_results = None
+if 'supplier_results' not in st.session_state: st.session_state.supplier_results = None
+if 'meta_results' not in st.session_state: st.session_state.meta_results = None
+
 st.sidebar.title("Tiktok Viral Takip 🤖")
 
 MENU_MAP = {
@@ -292,7 +321,8 @@ MENU_MAP = {
     "📢 Meta Reklam Gözcüsü": "Meta_Spy",
     "💾 Meta Kaydedilenler": "Meta_DB",
     "🏭 Tedarikçi Bulucu (İstihbarat)": "Tedarik",
-    "🗃️ Tedarikçi Veritabanı (Arşiv)": "Arşiv"
+    "🗃️ Tedarikçi Veritabanı (Arşiv)": "Arşiv",
+    "💰 Bakiye & Maliyet (Muhasebe)": "Cost"
 }
 
 menu_keys = list(MENU_MAP.keys())
@@ -417,13 +447,12 @@ elif st.session_state.page == "Takip":
                     if not rakipler.empty:
                         rakipler['Viral_Skor'] = pd.to_numeric(rakipler['Viral_Skor'], errors='coerce').fillna(0)
                         rakipler['Etkilesim_Orani'] = pd.to_numeric(rakipler['Etkilesim_Orani'], errors='coerce').fillna(0)
-                        
                         live_viral = rakipler['Viral_Skor'].mean()
                         live_eng = rakipler['Etkilesim_Orani'].mean()
                         total_views = rakipler['playCount'].sum()
                         winner_count = len(rakipler[rakipler['Karar_Puani'] >= 60]) if 'Karar_Puani' in rakipler.columns else 0
 
-                        # --- TİCARİ SKOR HESAPLAMA ---
+                        # Karar Matrisi
                         try: supp_cnt = len(pd.DataFrame(sh.worksheet("Suppliers").get_all_records()).query(f'Urun_Adi == "{prod}"'))
                         except: supp_cnt = 0
                         try: meta_cnt = len(pd.DataFrame(sh.worksheet("Meta_Results").get_all_records()).query(f'Urun_Adi == "{prod}"'))
@@ -473,7 +502,7 @@ elif st.session_state.page == "Takip":
                                 if not final_df.empty:
                                     rows = [[str(p['ID']), str(datetime.now().date()), prod, r.get('title',''), r.get('url',''), r.get('description',''), "Google"] for _, r in final_df.iterrows()]
                                     save_extra_results("Suppliers", rows); st.success(f"{len(final_df)} adet bulundu!"); time.sleep(1); st.rerun()
-                                else: st.warning("Kriterlere uyan yok.")
+                                else: st.warning("Uygun yok.")
                             else: st.warning("Sonuç yok.")
                     
                     st.markdown("---"); st.subheader("⚡ Veri Güncelleme")
@@ -585,3 +614,40 @@ elif st.session_state.page == "Arşiv":
                 ws = sh.worksheet("Suppliers"); ws.clear(); ws.append_row(["ID", "Tarih", "Urun_Adi", "Tedarikci_Baslik", "Web_Sitesi", "Aciklama", "Kanal_Tipi"]); st.rerun()
         else: st.info("Boş")
     except: st.error("Hata")
+
+# ----------------- 9. MUHASEBE (YENİ) -----------------
+elif st.session_state.page == "Cost":
+    st.title("💰 Bakiye & Maliyet (Muhasebe)")
+    
+    # İstatistikleri Çek
+    limits, usage, df_runs = get_apify_usage_stats()
+    
+    if limits:
+        # ÜST BİLGİ KARTLARI
+        c1, c2, c3 = st.columns(3)
+        
+        # Limitler (Genelde aylık 5$ veya 30$ olur plana göre)
+        total_limit = limits.get('actorComputeUnits', 0)
+        used_amount = usage.get('actorComputeUnits', 0)
+        remaining = total_limit - used_amount
+        usage_percent = (used_amount / total_limit) * 100 if total_limit > 0 else 0
+        
+        c1.metric("Kullanılan Kredi", f"{used_amount:.2f} CU")
+        c2.metric("Kalan Kredi", f"{remaining:.2f} CU")
+        c3.metric("Doluluk Oranı", f"%{usage_percent:.1f}")
+        
+        # Progress Bar
+        st.progress(min(usage_percent / 100, 1.0))
+        if usage_percent > 80:
+            st.error("⚠️ Dikkat! Kotanız dolmak üzere.")
+        else:
+            st.success("✅ Kotanız güvende.")
+            
+    st.markdown("---")
+    
+    # SON İŞLEMLER TABLOSU
+    st.subheader("📉 Son Harcamalar")
+    if not df_runs.empty:
+        st.dataframe(df_runs, use_container_width=True)
+    else:
+        st.info("Henüz işlem kaydı yok.")
