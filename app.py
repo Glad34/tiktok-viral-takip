@@ -12,23 +12,27 @@ import numpy as np
 import random 
 import ast
 
-# --- SAYFA YAPILANDIRMASI (EN BAŞTA OLMALI) ---
+# --- SAYFA YAPILANDIRMASI (EN BAŞTA) ---
 st.set_page_config(page_title="Tiktok Viral Takip", layout="wide")
-st.markdown("""<style>.stButton>button { width: 100%; border-radius: 5px; } .stDeployButton {display:none;} footer {visibility: hidden;} #MainMenu {visibility: visible;} [data-testid="stSidebar"] {min-width: 350px; max-width: 350px;}
-
-            
-            /* 4. MODÜL AYIRICI ÇİZGİLER (YENİ ÖZELLİK) */
-    /* Menüdeki her 2 elemanda bir altına çizgi çeker */
+st.markdown("""
+<style>
+    .stButton>button { width: 100%; border-radius: 5px; } 
+    .stDeployButton {display:none;} 
+    footer {visibility: hidden;} 
+    #MainMenu {visibility: visible;} 
+    [data-testid="stSidebar"] {min-width: 350px; max-width: 350px;}
     div[role="radiogroup"] > label:nth-child(2),
     div[role="radiogroup"] > label:nth-child(4),
-    div[role="radiogroup"] > label:nth-child(6) {
-        border-bottom: 1px solid rgba(255, 255, 255, 0.2); /* Çizgi Rengi ve Şeffaflığı */
-        margin-bottom: 10px !important; /* Çizgi altı boşluk */
-        padding-bottom: 10px !important; /* Çizgi üstü boşluk */
+    div[role="radiogroup"] > label:nth-child(6),
+    div[role="radiogroup"] > label:nth-child(8) {
+        border-bottom: 1px solid rgba(255, 255, 255, 0.2); 
+        margin-bottom: 10px !important; 
+        padding-bottom: 10px !important;
     }
-            </style>""", unsafe_allow_html=True)
+</style>
+""", unsafe_allow_html=True)
 
-# --- SESSION STATE BAŞLATMA (HATAYI ÇÖZEN KISIM - EN ÜSTE ALINDI) ---
+# --- SESSION STATE BAŞLATMA (HATAYI ÇÖZEN YER) ---
 if 'page' not in st.session_state: st.session_state.page = "Viral"
 if 'analyzed_data' not in st.session_state: st.session_state.analyzed_data = None
 if 'analysis_meta' not in st.session_state: st.session_state.analysis_meta = {}
@@ -95,6 +99,45 @@ def init_master_sheet():
     except Exception as e:
         st.error(f"Google Sheet Hatası: '{MASTER_SHEET_NAME}' dosyası bulunamadı!")
         st.stop()
+
+# --- MALİYET HESAPLAMA (MUHASEBE) ---
+def get_apify_usage_stats():
+    try:
+        user_info = client.user().get()
+        limits = user_info.get('limits', {})
+        usage = user_info.get('usage', {})
+        runs = client.runs().list(limit=10, desc=True).items
+        
+        run_data = []
+        for run in runs:
+            actor_name = run.get('actId', 'Bilinmeyen')
+            # Aktör adlarını güzelleştir
+            if "clockworks" in actor_name or "tiktok" in actor_name: actor_name = "TikTok Scraper"
+            elif "google" in actor_name: actor_name = "Google Search"
+            
+            stats = run.get('stats', {})
+            compute_units = stats.get('computeUnits', 0)
+            status = run.get('status')
+            
+            # Tarih formatlama
+            start_time = run.get('startedAt')
+            if start_time:
+                if isinstance(start_time, str):
+                    # ISO format (2025-12-06T12:00:00.000Z) parse et
+                    try: start_time = datetime.strptime(start_time.split('.')[0], "%Y-%m-%dT%H:%M:%S")
+                    except: pass
+            
+            run_data.append({
+                "Tarih": start_time,
+                "Modül": actor_name,
+                "Durum": status,
+                "Maliyet (CU)": round(compute_units, 4)
+            })
+            
+        return limits, usage, pd.DataFrame(run_data)
+    except Exception as e:
+        st.error(f"Apify Verisi Alınamadı: {e}")
+        return None, None, pd.DataFrame()
 
 # --- ANALİZ VE SCRAPE FONKSİYONLARI ---
 def clean_text_for_query(text):
@@ -213,25 +256,16 @@ def generate_smart_analysis(df):
     analysis += f"- {date_comment}\n"
     return analysis, str(next_check_date)
 
-# --- YENİ: KARAR SKORU HESAPLAMA ---
 def calculate_commercial_score(viral_score, supplier_count, meta_count, engagement_rate):
     score = 0
-    # 1. Talep (Viral Skor) - Max 40 Puan
     if viral_score > 100: score += 40
     elif viral_score > 50: score += 30
     elif viral_score > 20: score += 15
-    
-    # 2. Tedarik (Lojistik) - Max 30 Puan
     if supplier_count > 5: score += 30
     elif supplier_count > 0: score += 20
-    
-    # 3. Pazar Kanıtı (Meta) - Max 20 Puan
     if meta_count > 0: score += 20
-    
-    # 4. Etkileşim (Kalite) - Max 10 Puan
     if engagement_rate > 5: score += 10
     elif engagement_rate > 2: score += 5
-    
     return score
 
 # --- KAYDETME FONKSİYONLARI ---
@@ -281,7 +315,7 @@ def save_extra_results(sheet_name, data_list):
         st.error(f"Kayıt Hatası: {e}")
         return False
 
-# --- SIDEBAR (MENÜ) ---
+# --- MENÜ VE NAVİGASYON ---
 st.sidebar.title("Tiktok Viral Takip 🤖")
 
 MENU_MAP = {
@@ -292,18 +326,23 @@ MENU_MAP = {
     "📢 Meta Reklam Gözcüsü": "Meta_Spy",
     "💾 Meta Kaydedilenler": "Meta_DB",
     "🏭 Tedarikçi Bulucu (İstihbarat)": "Tedarik",
-    "🗃️ Tedarikçi Veritabanı (Arşiv)": "Arşiv"
+    "🗃️ Tedarikçi Veritabanı (Arşiv)": "Arşiv",
+    "💰 Bakiye & Maliyet (Muhasebe)": "Cost"
 }
 
+# Session State'den mevcut sayfanın index'ini bul
 menu_keys = list(MENU_MAP.keys())
 try:
     current_label = [k for k, v in MENU_MAP.items() if v == st.session_state.page][0]
     current_index = menu_keys.index(current_label)
-except: current_index = 0
+except:
+    current_index = 0
 
+# Radio Buton Menüsü
 selected_label = st.sidebar.radio("Modüller:", menu_keys, index=current_index)
 selection = MENU_MAP[selected_label]
 
+# Seçim değişirse sayfayı güncelle ve yeniden yükle
 if selection != st.session_state.page:
     st.session_state.page = selection
     st.session_state.auto_start = False
@@ -423,7 +462,7 @@ elif st.session_state.page == "Takip":
                         total_views = rakipler['playCount'].sum()
                         winner_count = len(rakipler[rakipler['Karar_Puani'] >= 60]) if 'Karar_Puani' in rakipler.columns else 0
 
-                        # --- TİCARİ SKOR HESAPLAMA ---
+                        # Karar Matrisi
                         try: supp_cnt = len(pd.DataFrame(sh.worksheet("Suppliers").get_all_records()).query(f'Urun_Adi == "{prod}"'))
                         except: supp_cnt = 0
                         try: meta_cnt = len(pd.DataFrame(sh.worksheet("Meta_Results").get_all_records()).query(f'Urun_Adi == "{prod}"'))
@@ -585,3 +624,19 @@ elif st.session_state.page == "Arşiv":
                 ws = sh.worksheet("Suppliers"); ws.clear(); ws.append_row(["ID", "Tarih", "Urun_Adi", "Tedarikci_Baslik", "Web_Sitesi", "Aciklama", "Kanal_Tipi"]); st.rerun()
         else: st.info("Boş")
     except: st.error("Hata")
+
+# ----------------- 9. MUHASEBE -----------------
+elif st.session_state.page == "Cost":
+    st.title("💰 Bakiye & Maliyet (Muhasebe)")
+    limits, usage, df_runs = get_apify_usage_stats()
+    if limits:
+        c1, c2, c3 = st.columns(3)
+        total = limits.get('actorComputeUnits', 0)
+        used = usage.get('actorComputeUnits', 0)
+        c1.metric("Kullanılan", f"{used:.2f} CU")
+        c2.metric("Kalan", f"{total-used:.2f} CU")
+        c3.metric("Doluluk", f"{(used/total)*100:.1f}%")
+        st.progress(min((used/total), 1.0))
+    st.subheader("📉 Son Harcamalar")
+    if not df_runs.empty: st.dataframe(df_runs, use_container_width=True)
+    else: st.info("Kayıt yok.")
