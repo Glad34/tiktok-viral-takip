@@ -468,7 +468,7 @@ elif st.session_state.page == "📈 Takip Edilenler":
     except Exception as e:
         st.error(f"Veri Hatası: {e}")
 
-# ----------------- MODÜL 4: KAYDEDİLENLER (BOOKMARKS) -----------------
+# ----------------- MODÜL 4: KAYDEDİLENLER (KOMPAKT TABLO) -----------------
 elif st.session_state.page == "📌 Kaydedilenler":
     st.title("📌 Hızlı Kaydedilenler")
     sh = init_master_sheet()
@@ -477,25 +477,56 @@ elif st.session_state.page == "📌 Kaydedilenler":
         data = ws_bm.get_all_records()
         
         if not data:
-            st.info("Listeniz boş.")
+            st.info("Listeniz boş. 'Viral Ürün Bulucu'dan ürün ekleyebilirsiniz.")
         else:
             df_bm = pd.DataFrame(data)
-            df_bm = df_bm.iloc[::-1] # En yeni üstte
+            # Listeyi tersten sırala (En yeni en üstte)
+            df_bm = df_bm.iloc[::-1]
             
-            for index, row in df_bm.iterrows():
-                with st.container():
-                    c1, c2, c3 = st.columns([1, 3, 2])
-                    with c1:
-                        if row.get('Resim_URL'): st.image(row['Resim_URL'], use_column_width=True)
-                    with c2:
-                        st.write(f"**{row['Aciklama']}**")
-                        st.caption(f"Tarih: {row['Tarih']}")
-                        st.markdown(f"[🎥 Videoya Git]({row['Video_URL']})", unsafe_allow_html=True)
-                        st.code(row['Video_URL'], language="text")
-                    with c3:
-                        st.metric("İzlenme", f"{row['Izlenme']:,}")
-                        st.metric("Viral Skor", f"%{row['Viral_Skor']}")
-                        st.metric("Etkileşim", f"%{row['Etkilesim']}")
-                    st.markdown("---")
+            # Gerekli sütunları seç ve sırala
+            # Eğer Google Sheet'te sütun isimleri farklıysa burayı kontrol et
+            df_display = df_bm[['Resim_URL', 'Aciklama', 'Tarih', 'Izlenme', 'Viral_Skor', 'Etkilesim', 'Video_URL']]
+
+            # TABLO GÖRÜNÜMÜ AYARLARI
+            st.data_editor(
+                df_display,
+                column_config={
+                    "Resim_URL": st.column_config.ImageColumn(
+                        "Resim", 
+                        width="small",
+                        help="Video Önizleme"
+                    ),
+                    "Aciklama": st.column_config.TextColumn(
+                        "Ürün / Açıklama",
+                        width="medium",
+                        help="Video Başlığı"
+                    ),
+                    "Tarih": st.column_config.TextColumn(
+                        "Tarih",
+                        width="small"
+                    ),
+                    "Izlenme": st.column_config.NumberColumn(
+                        "İzlenme",
+                        format="%d" # Virgüllü sayı formatı
+                    ),
+                    "Viral_Skor": st.column_config.NumberColumn(
+                        "Viral Skor",
+                        format="%.1f" 
+                    ),
+                    "Etkilesim": st.column_config.NumberColumn(
+                        "Etkileşim",
+                        format="%.2f"
+                    ),
+                    "Video_URL": st.column_config.LinkColumn(
+                        "Link",
+                        display_text="▶️ Git" # Link yerine bu yazı/ikon gözükür
+                    )
+                },
+                hide_index=True,          # Sol baştaki 0,1,2 sayılarını gizle
+                use_container_width=True, # Tabloyu ekran genişliğine yay
+                height=800,               # Tablo yüksekliği (Başlıklar sabit kalır, içi kayar)
+                disabled=True             # Verilerin elle değiştirilmesini engelle (Sadece okuma)
+            )
+            
     except Exception as e:
-        st.error(f"Hata: {e}")
+        st.error(f"Tablo yüklenirken hata oluştu: {e}")
