@@ -12,6 +12,20 @@ import numpy as np
 import random 
 import ast
 
+# --- SAYFA YAPILANDIRMASI (EN BAŞTA OLMALI) ---
+st.set_page_config(page_title="Tiktok Viral Takip", layout="wide")
+st.markdown("""<style>.stButton>button { width: 100%; border-radius: 5px; } .stDeployButton {display:none;} footer {visibility: hidden;} #MainMenu {visibility: visible;} [data-testid="stSidebar"] {min-width: 350px; max-width: 350px;}</style>""", unsafe_allow_html=True)
+
+# --- SESSION STATE BAŞLATMA (HATAYI ÇÖZEN KISIM - EN ÜSTE ALINDI) ---
+if 'page' not in st.session_state: st.session_state.page = "Viral"
+if 'analyzed_data' not in st.session_state: st.session_state.analyzed_data = None
+if 'analysis_meta' not in st.session_state: st.session_state.analysis_meta = {}
+if 'transfer_url' not in st.session_state: st.session_state.transfer_url = ""
+if 'auto_start' not in st.session_state: st.session_state.auto_start = False
+if 'discovery_results' not in st.session_state: st.session_state.discovery_results = None
+if 'supplier_results' not in st.session_state: st.session_state.supplier_results = None
+if 'meta_results' not in st.session_state: st.session_state.meta_results = None
+
 # --- AYARLAR VE ŞİFRELER ---
 CREDENTIALS_FILE = "credentials.json"
 MASTER_SHEET_NAME = "Viral_Hunter_Master"
@@ -255,34 +269,7 @@ def save_extra_results(sheet_name, data_list):
         st.error(f"Kayıt Hatası: {e}")
         return False
 
-# --- SAYFA VE MENÜ ---
-st.set_page_config(page_title="Tiktok Viral Takip", layout="wide")
-st.markdown("""
-<style>
-    .stButton>button { width: 100%; border-radius: 5px; } 
-    .stDeployButton {display:none;} 
-    footer {visibility: hidden;} 
-    #MainMenu {visibility: visible;} 
-    [data-testid="stSidebar"] {min-width: 350px; max-width: 350px;}
-    
-    /* MODÜL AYIRICI ÇİZGİLER */
-    div[role="radiogroup"] > label:nth-child(2),
-    div[role="radiogroup"] > label:nth-child(4),
-    div[role="radiogroup"] > label:nth-child(6) {
-        border-bottom: 1px solid rgba(255, 255, 255, 0.2); 
-        margin-bottom: 10px !important; 
-        padding-bottom: 10px !important;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-if 'analyzed_data' not in st.session_state: st.session_state.analyzed_data = None
-if 'analysis_meta' not in st.session_state: st.session_state.analysis_meta = {}
-if 'transfer_url' not in st.session_state: st.session_state.transfer_url = ""
-if 'auto_start' not in st.session_state: st.session_state.auto_start = False
-if 'discovery_results' not in st.session_state: st.session_state.discovery_results = None
-if 'supplier_results' not in st.session_state: st.session_state.supplier_results = None
-
+# --- SIDEBAR (MENÜ) ---
 st.sidebar.title("Tiktok Viral Takip 🤖")
 
 MENU_MAP = {
@@ -398,7 +385,7 @@ elif st.session_state.page == "Analiz":
                     st.success("Kaydedildi"); time.sleep(1); st.session_state.analyzed_data = None; st.rerun()
         with c2: st.dataframe(st.session_state.analyzed_data[['text', 'playCount', 'Viral_Skor', 'webVideoUrl']])
 
-# ----------------- 3. MERKEZ (DECISION ENGINE EKLENDİ) -----------------
+# ----------------- 3. MERKEZ -----------------
 elif st.session_state.page == "Takip":
     st.title("📈 Takip Edilenler (Merkez)")
     sh = init_master_sheet()
@@ -410,21 +397,9 @@ elif st.session_state.page == "Takip":
             if prod:
                 p = master[master['Urun_Adi'] == prod].iloc[0]
                 try:
-                    # VERİLERİ ÇEK
                     perf = pd.DataFrame(sh.worksheet(p['Performans_Sekme_Adi']).get_all_records())
                     rakipler = pd.DataFrame(sh.worksheet(p['Rakipler_Sekme_Adi']).get_all_records())
                     
-                    # TİCARİ İSTİHBARAT VERİLERİNİ KONTROL ET
-                    try: 
-                        supp_check = pd.DataFrame(sh.worksheet("Suppliers").get_all_records())
-                        supplier_count = len(supp_check[supp_check['Urun_Adi'] == prod])
-                    except: supplier_count = 0
-                    
-                    try:
-                        meta_check = pd.DataFrame(sh.worksheet("Meta_Results").get_all_records())
-                        meta_count = len(meta_check[meta_check['Urun_Adi'] == prod])
-                    except: meta_count = 0
-
                     st.info(f"Durum: {p['Durum']} | Sonraki Kontrol: {p['Sonraki_Analiz_Tarihi']}")
                     
                     if not rakipler.empty:
@@ -436,42 +411,33 @@ elif st.session_state.page == "Takip":
                         total_views = rakipler['playCount'].sum()
                         winner_count = len(rakipler[rakipler['Karar_Puani'] >= 60]) if 'Karar_Puani' in rakipler.columns else 0
 
-                        # --- KARAR MATRİSİ HESAPLAMA ---
-                        comm_score = calculate_commercial_score(live_viral, supplier_count, meta_count, live_eng)
+                        # --- TİCARİ SKOR HESAPLAMA ---
+                        try: supp_cnt = len(pd.DataFrame(sh.worksheet("Suppliers").get_all_records()).query(f'Urun_Adi == "{prod}"'))
+                        except: supp_cnt = 0
+                        try: meta_cnt = len(pd.DataFrame(sh.worksheet("Meta_Results").get_all_records()).query(f'Urun_Adi == "{prod}"'))
+                        except: meta_cnt = 0
                         
-                        # --- KARAR GÖSTERGESİ ---
-                        st.markdown("### 🧠 YAPAY ZEKA NİHAİ KARAR MOTORU")
-                        col_score, col_detail = st.columns([1, 2])
+                        comm_score = calculate_commercial_score(live_viral, supp_cnt, meta_cnt, live_eng)
                         
-                        with col_score:
-                            st.metric("TİCARİ GÜVEN SKORU", f"{comm_score}/100")
-                            if comm_score >= 75:
-                                st.success("✅ **KESİN ALIM EMRİ**\n\nBu ürün tüm testleri geçti.")
-                            elif comm_score >= 50:
-                                st.warning("⚠️ **RİSKLİ ALIM**\n\nTedarikçi veya reklam eksik.")
-                            else:
-                                st.error("⛔ **UZAK DUR**\n\nVeriler yetersiz.")
-                        
-                        with col_detail:
-                            st.write("**Puan Detayları:**")
-                            st.checkbox(f"Talep Gücü (Viral Skor: {live_viral:.1f})", value=(live_viral>20), disabled=True)
-                            st.checkbox(f"Pazar Kanıtı ({meta_count} Reklam Bulundu)", value=(meta_count>0), disabled=True)
-                            st.checkbox(f"Lojistik ({supplier_count} Tedarikçi Bulundu)", value=(supplier_count>0), disabled=True)
-                            st.checkbox(f"Kalite (Etkileşim: %{live_eng:.1f})", value=(live_eng>2), disabled=True)
+                        st.markdown("### 🧠 KARAR MOTORU")
+                        sc1, sc2 = st.columns([1,2])
+                        with sc1:
+                            st.metric("GÜVEN SKORU", f"{comm_score}/100")
+                            if comm_score>=75: st.success("ALIM EMRİ ✅")
+                            elif comm_score>=50: st.warning("RİSKLİ ⚠️")
+                            else: st.error("BEKLE ⛔")
+                        with sc2:
+                            st.caption(f"Tedarikçi: {supp_cnt} | Meta İzi: {meta_cnt} | Kalite: %{live_eng:.1f}")
 
                         st.markdown("---")
-                        
                         c1, c2, c3, c4 = st.columns(4)
-                        c1.metric("Ort. Viral Skor", f"%{live_viral:.2f}")
+                        c1.metric("Ort. Viral", f"%{live_viral:.2f}")
                         c2.metric("Ort. Etkileşim", f"%{live_eng:.2f}")
-                        c3.metric("Toplam İzlenme", f"{int(total_views):,}")
-                        c4.metric("Winner Sayısı", winner_count)
-                        
-                        if not perf.empty:
-                            st.markdown("### 📝 Analiz Notu")
-                            st.info(perf.iloc[-1]['Analiz_Notu'])
+                        c3.metric("İzlenme", f"{int(total_views):,}")
+                        c4.metric("Winner", winner_count)
+                        if not perf.empty: st.info(perf.iloc[-1]['Analiz_Notu'])
 
-                    st.markdown("---"); st.subheader("🕵️ İstihbarat & Aksiyon")
+                    st.markdown("---"); st.subheader("🕵️ İstihbarat")
                     cm, cs = st.columns(2)
                     with cm:
                         if st.button("📢 Meta Tara", use_container_width=True):
