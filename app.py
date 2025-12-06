@@ -147,14 +147,11 @@ def calculate_metrics(df):
         df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
     if 'createTimeISO' not in df.columns: df['createTimeISO'] = pd.NaT
     else: df['createTimeISO'] = pd.to_datetime(df['createTimeISO'], errors='coerce', utc=True).dt.tz_localize(None)
-    
     df['Viral_Skor'] = ((df['shareCount'] + df['collectCount']) / df['diggCount'].replace(0, 1)) * 100
     total_interaction = df['diggCount'] + df['shareCount'] + df['collectCount'] + df['commentCount']
     df['Etkilesim_Orani'] = (total_interaction / df['playCount'].replace(0, 1)) * 100
-    
     df['Viral_Skor'] = df['Viral_Skor'].round(2)
     df['Etkilesim_Orani'] = df['Etkilesim_Orani'].round(2)
-    
     def score_row(row):
         score = 0
         if row['Viral_Skor'] > 10: score += 40
@@ -162,7 +159,6 @@ def calculate_metrics(df):
         if row['Etkilesim_Orani'] > 3: score += 20
         if row['shareCount'] > 200: score += 20
         return score
-    
     df['Karar_Puani'] = df.apply(score_row, axis=1)
     df['Durum'] = df['Karar_Puani'].apply(lambda x: "WINNER 🏆" if x >= 60 else ("TAKİPTE 🟡" if x >= 40 else "ÇÖP 🔴"))
     return df
@@ -240,13 +236,7 @@ def save_extra_results(sheet_name, data_list):
 
 # --- SAYFA VE MENÜ ---
 st.set_page_config(page_title="Tiktok Viral Takip", layout="wide")
-st.markdown("""<style>.stButton>button { width: 100%; border-radius: 5px; } .stDeployButton {display:none;} footer {visibility: hidden;} #MainMenu {visibility: visible;}
-            
-            [data-testid="stSidebar"] {
-        min-width: 350px; /* Burayı artırarak genişletebilirsin (Örn: 400px, 500px) */
-        max-width: 350px; /* Burayı da aynı yap ki sabit kalsın */
-    }
-            </style>""", unsafe_allow_html=True)
+st.markdown("""<style>.stButton>button { width: 100%; border-radius: 5px; } .stDeployButton {display:none;} footer {visibility: hidden;} #MainMenu {visibility: visible;} [data-testid="stSidebar"] {min-width: 350px; max-width: 350px;}</style>""", unsafe_allow_html=True)
 
 if 'analyzed_data' not in st.session_state: st.session_state.analyzed_data = None
 if 'analysis_meta' not in st.session_state: st.session_state.analysis_meta = {}
@@ -254,8 +244,8 @@ if 'transfer_url' not in st.session_state: st.session_state.transfer_url = ""
 if 'auto_start' not in st.session_state: st.session_state.auto_start = False
 if 'discovery_results' not in st.session_state: st.session_state.discovery_results = None
 if 'supplier_results' not in st.session_state: st.session_state.supplier_results = None
+if 'meta_results' not in st.session_state: st.session_state.meta_results = None
 
-# --- YENİ SIDEBAR YAPISI (RADIO BUTON GERİ GELDİ) ---
 st.sidebar.title("Tiktok Viral Takip 🤖")
 
 # Menü Haritası
@@ -264,30 +254,22 @@ MENU_MAP = {
     "🚀 Ürün Analizi (Avcı)": "Analiz",
     "📈 Takip Edilenler (Merkez)": "Takip",
     "📌 Kaydedilenler (Depo)": "Depo",
-    
+    "────────────────": None,
+    "📢 Meta Reklam Gözcüsü": "Meta_Spy",
+    "💾 Meta Kaydedilenler": "Meta_DB",
     "🏭 Tedarikçi Bulucu (İstihbarat)": "Tedarik",
     "🗃️ Tedarikçi Veritabanı (Arşiv)": "Arşiv"
 }
 
-# Sayfa State Kontrolü
-if 'page' not in st.session_state: st.session_state.page = "Viral"
-
-# Ayırıcıyı listeden çıkarıp index bulma
 menu_keys = list(MENU_MAP.keys())
 try:
-    # Mevcut sayfanın key'ini bul
     current_label = [k for k, v in MENU_MAP.items() if v == st.session_state.page][0]
     current_index = menu_keys.index(current_label)
-except:
-    current_index = 0
+except: current_index = 0
 
-# Radio Buton Menüsü
 selected_label = st.sidebar.radio("Modüller:", menu_keys, index=current_index)
 
-# Seçim İşlemleri
-if selected_label == "────────────────":
-    # Ayırıcıya tıklanırsa eski sayfada kal
-    st.rerun()
+if selected_label == "────────────────": st.rerun()
 else:
     selection = MENU_MAP[selected_label]
     if selection != st.session_state.page:
@@ -397,28 +379,22 @@ elif st.session_state.page == "Takip":
                 try:
                     perf = pd.DataFrame(sh.worksheet(p['Performans_Sekme_Adi']).get_all_records())
                     rakipler = pd.DataFrame(sh.worksheet(p['Rakipler_Sekme_Adi']).get_all_records())
-                    
                     st.info(f"Durum: {p['Durum']} | Sonraki Kontrol: {p['Sonraki_Analiz_Tarihi']}")
-                    
                     if not rakipler.empty:
                         rakipler['Viral_Skor'] = pd.to_numeric(rakipler['Viral_Skor'], errors='coerce').fillna(0)
                         rakipler['Etkilesim_Orani'] = pd.to_numeric(rakipler['Etkilesim_Orani'], errors='coerce').fillna(0)
-                        
                         live_viral = rakipler['Viral_Skor'].mean()
                         live_eng = rakipler['Etkilesim_Orani'].mean()
                         total_views = rakipler['playCount'].sum()
                         winner_count = len(rakipler[rakipler['Karar_Puani'] >= 60]) if 'Karar_Puani' in rakipler.columns else 0
-
                         c1, c2, c3, c4 = st.columns(4)
                         c1.metric("Ort. Viral Skor", f"%{live_viral:.2f}")
                         c2.metric("Ort. Etkileşim", f"%{live_eng:.2f}")
                         c3.metric("Toplam İzlenme", f"{int(total_views):,}")
                         c4.metric("Winner Sayısı", winner_count)
-                        
                         if not perf.empty:
                             st.markdown("### 📝 Yapay Zeka Notu")
                             st.info(perf.iloc[-1]['Analiz_Notu'])
-
                     st.markdown("---"); st.subheader("🕵️ İstihbarat")
                     cm, cs = st.columns(2)
                     with cm:
@@ -436,7 +412,6 @@ elif st.session_state.page == "Takip":
                             for q in qs:
                                 df_part = run_google_scraper(q, limit=20)
                                 if not df_part.empty: all_raw = pd.concat([all_raw, df_part], ignore_index=True)
-                            
                             if not all_raw.empty:
                                 all_raw = all_raw.drop_duplicates(subset=['url'])
                                 final_df = filter_suppliers_strict(all_raw, p["Arama_Sorgusu"])
@@ -445,7 +420,6 @@ elif st.session_state.page == "Takip":
                                     save_extra_results("Suppliers", rows); st.success(f"{len(final_df)} adet bulundu!")
                                 else: st.warning("Kriterlere uyan yok.")
                             else: st.warning("Sonuç yok.")
-                    
                     st.markdown("---"); st.subheader("⚡ Veri Güncelleme")
                     limit = st.slider("Video Sayısı", 15, 50, 15)
                     if st.button("🔄 GÜNCELLE"):
@@ -456,7 +430,6 @@ elif st.session_state.page == "Takip":
                                 ai, nxt = generate_smart_analysis(ndf)
                                 update_product_data(p['Rakipler_Sekme_Adi'], p['Performans_Sekme_Adi'], ndf, ai, ndf['Viral_Skor'].mean(), nxt)
                                 st.success("Tamam"); st.rerun()
-                    
                     st.subheader("📋 Rakipler")
                     wanted = ['text', 'playCount', 'Viral_Skor', 'Etkilesim_Orani', 'createTimeISO']
                     final = [c for c in wanted if c in rakipler.columns]
@@ -475,7 +448,53 @@ elif st.session_state.page == "Depo":
         else: st.info("Boş")
     except: st.error("Hata")
 
-# ----------------- 5. TEDARİK -----------------
+# ----------------- 5. META GÖZCÜ (YENİ) -----------------
+elif st.session_state.page == "Meta_Spy":
+    st.title("📢 Meta Reklam Gözcüsü")
+    st.markdown("Ürün adını girin, Facebook ve Instagram'daki reklam izlerini (sponsorlu, shop, fiyat) tarayın.")
+    
+    col_inp, col_btn = st.columns([3, 1])
+    with col_inp:
+        search_term = st.text_input("Aranacak Ürün:", placeholder="Örn: akıllı saat")
+    
+    if st.button("🔍 Meta'da Ara") and search_term:
+        st.session_state.meta_results = None
+        # Facebook ve Instagram araması
+        query = f'"{search_term}" site:facebook.com OR site:instagram.com "sponsorlu" OR "fiyat" OR "sipariş" OR "shop"'
+        
+        with st.status("Meta ağı taranıyor..."):
+            df = run_google_scraper(query, limit=20)
+            if not df.empty:
+                st.session_state.meta_results = df
+            else:
+                st.warning("Sonuç bulunamadı.")
+
+    if st.session_state.meta_results is not None:
+        res = st.session_state.meta_results
+        st.success(f"{len(res)} sonuç bulundu.")
+        st.data_editor(res[['title', 'description', 'url']], column_config={"url": st.column_config.LinkColumn("Link", display_text="🔗 Git")}, use_container_width=True)
+        
+        if st.button("💾 Sonuçları Kaydet"):
+            rows = [[str(uuid.uuid4().hex[:8]), str(datetime.now().date()), search_term, r.get('title',''), r.get('url',''), r.get('description',''), "Meta Spy"] for _, r in res.iterrows()]
+            if save_extra_results("Meta_Results", rows): st.success("Kaydedildi!"); time.sleep(2)
+
+# ----------------- 6. META ARŞİV (YENİ) -----------------
+elif st.session_state.page == "Meta_DB":
+    st.title("💾 Meta Kaydedilenler")
+    sh = init_master_sheet()
+    try:
+        data = sh.worksheet("Meta_Results").get_all_records()
+        if data:
+            df = pd.DataFrame(data)
+            filt = st.selectbox("Filtre:", ["Tümü"] + list(df['Urun_Adi'].unique()))
+            if filt != "Tümü": df = df[df['Urun_Adi'] == filt]
+            st.data_editor(df[['Tarih', 'Urun_Adi', 'Baslik', 'Link', 'Aciklama']], column_config={"Link": st.column_config.LinkColumn("Link", display_text="🔗 Git")}, use_container_width=True)
+            if st.button("⚠️ Temizle"): 
+                ws = sh.worksheet("Meta_Results"); ws.clear(); ws.append_row(["ID", "Tarih", "Urun_Adi", "Baslik", "Link", "Aciklama", "Kaynak"]); st.rerun()
+        else: st.info("Boş")
+    except: st.error("Hata")
+
+# ----------------- 7. TEDARİK -----------------
 elif st.session_state.page == "Tedarik":
     st.title("🏭 Tedarikçi Bulucu (İstihbarat)")
     c1, c2 = st.columns([3,1])
@@ -504,7 +523,7 @@ elif st.session_state.page == "Tedarik":
             rows = [[str(uuid.uuid4().hex[:8]), str(datetime.now().date()), search_term, r.get('title',''), r.get('url',''), r.get('description',''), "Search"] for _, r in res.iterrows()]
             if save_extra_results("Suppliers", rows): st.success("Tamam"); time.sleep(2)
 
-# ----------------- 6. ARŞİV -----------------
+# ----------------- 8. ARŞİV -----------------
 elif st.session_state.page == "Arşiv":
     st.title("🗃️ Tedarikçi Arşivi")
     sh = init_master_sheet()
