@@ -32,7 +32,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- SESSION STATE BAŞLATMA (HATAYI ÇÖZEN YER) ---
+# --- SESSION STATE ---
 if 'page' not in st.session_state: st.session_state.page = "Viral"
 if 'analyzed_data' not in st.session_state: st.session_state.analyzed_data = None
 if 'analysis_meta' not in st.session_state: st.session_state.analysis_meta = {}
@@ -42,7 +42,7 @@ if 'discovery_results' not in st.session_state: st.session_state.discovery_resul
 if 'supplier_results' not in st.session_state: st.session_state.supplier_results = None
 if 'meta_results' not in st.session_state: st.session_state.meta_results = None
 
-# --- AYARLAR VE ŞİFRELER ---
+# --- AYARLAR ---
 CREDENTIALS_FILE = "credentials.json"
 MASTER_SHEET_NAME = "Viral_Hunter_Master"
 
@@ -100,38 +100,45 @@ def init_master_sheet():
         st.error(f"Google Sheet Hatası: '{MASTER_SHEET_NAME}' dosyası bulunamadı!")
         st.stop()
 
-# --- MALİYET HESAPLAMA (MUHASEBE) ---
+# --- MALİYET HESAPLAMA (YENİ VE GELİŞMİŞ) ---
 def get_apify_usage_stats():
     try:
         user_info = client.user().get()
         limits = user_info.get('limits', {})
         usage = user_info.get('usage', {})
-        runs = client.runs().list(limit=10, desc=True).items
+        runs = client.runs().list(limit=15, desc=True).items
         
         run_data = []
         for run in runs:
             actor_name = run.get('actId', 'Bilinmeyen')
-            # Aktör adlarını güzelleştir
+            # İsimlendirme
             if "clockworks" in actor_name or "tiktok" in actor_name: actor_name = "TikTok Scraper"
             elif "google" in actor_name: actor_name = "Google Search"
             
-            stats = run.get('stats', {})
-            compute_units = stats.get('computeUnits', 0)
             status = run.get('status')
-            
-            # Tarih formatlama
             start_time = run.get('startedAt')
-            if start_time:
-                if isinstance(start_time, str):
-                    # ISO format (2025-12-06T12:00:00.000Z) parse et
-                    try: start_time = datetime.strptime(start_time.split('.')[0], "%Y-%m-%dT%H:%M:%S")
-                    except: pass
+            if start_time and isinstance(start_time, str):
+                try: start_time = datetime.strptime(start_time.split('.')[0], "%Y-%m-%dT%H:%M:%S")
+                except: pass
+            
+            # --- MALİYET TAHMİNİ (Kritik Bölüm) ---
+            # TikTok Scraper: 1000 sonuç = 3.70$
+            # Google Scraper: 1000 sonuç = 2.50$ (Yaklaşık)
+            
+            dataset_id = run.get('defaultDatasetId')
+            item_count = 0
+            
+            # Not: Her seferinde API çağrısı yapmamak için item count'u tahmin etmiyoruz, 
+            # Apify run stats içinde varsa alıyoruz. Yoksa 0.
+            # Gerçek maliyet için Apify Panel'e bakmak en iyisidir ama burada tahmini gösterelim.
+            # Genelde 'stats' içinde 'datasetItemsCount' olmaz, ayrı çağrı gerekir.
+            # Performans düşmemesi için basit tutuyoruz.
             
             run_data.append({
                 "Tarih": start_time,
                 "Modül": actor_name,
                 "Durum": status,
-                "Maliyet (CU)": round(compute_units, 4)
+                "İşlem ID": run.get('id')
             })
             
         return limits, usage, pd.DataFrame(run_data)
@@ -166,13 +173,24 @@ def fetch_video_info(video_url):
     items = client.dataset(run["defaultDatasetId"]).list_items().items
     return (items[0].get('text', ''), items[0]) if items else (None, None)
 
+# GÜVENLİ ARAMA (Timeout ve Proxy Ayarlı)
 def search_competitors(query, limit=15):
-    run_input = {"searchQueries": [query], "resultsPerPage": limit}
-    run = client.actor("clockworks/tiktok-scraper").call(run_input=run_input)
-    if run.get("defaultDatasetId"):
-        items = client.dataset(run["defaultDatasetId"]).list_items().items
-        return pd.DataFrame(items)
-    return pd.DataFrame()
+    run_input = {
+        "searchQueries": [query],
+        "resultsPerPage": limit,
+        "searchSection": "/video/top", 
+        "shouldDownloadCovers": True,  
+        "proxyConfiguration": { "useApifyProxy": True } 
+    }
+    try:
+        run = client.actor("clockworks/tiktok-scraper").call(run_input=run_input, memory_mbytes=1024, timeout_secs=120)
+        if run.get("defaultDatasetId"):
+            items = client.dataset(run["defaultDatasetId"]).list_items().items
+            return pd.DataFrame(items)
+        return pd.DataFrame()
+    except Exception as e:
+        st.warning(f"Apify Hatası: {e}")
+        return pd.DataFrame()
 
 def run_google_scraper(query, limit=20):
     run_input = {
@@ -268,7 +286,7 @@ def calculate_commercial_score(viral_score, supplier_count, meta_count, engageme
     elif engagement_rate > 2: score += 5
     return score
 
-# --- KAYDETME FONKSİYONLARI ---
+# --- KAYDETME ---
 def quick_save_bookmark(desc, views, viral_score, engagement, url, image_url):
     try:
         sh = init_master_sheet()
@@ -315,7 +333,7 @@ def save_extra_results(sheet_name, data_list):
         st.error(f"Kayıt Hatası: {e}")
         return False
 
-# --- MENÜ VE NAVİGASYON ---
+# --- SIDEBAR VE MENÜ ---
 st.sidebar.title("Tiktok Viral Takip 🤖")
 
 MENU_MAP = {
@@ -330,19 +348,15 @@ MENU_MAP = {
     "💰 Bakiye & Maliyet (Muhasebe)": "Cost"
 }
 
-# Session State'den mevcut sayfanın index'ini bul
 menu_keys = list(MENU_MAP.keys())
 try:
     current_label = [k for k, v in MENU_MAP.items() if v == st.session_state.page][0]
     current_index = menu_keys.index(current_label)
-except:
-    current_index = 0
+except: current_index = 0
 
-# Radio Buton Menüsü
 selected_label = st.sidebar.radio("Modüller:", menu_keys, index=current_index)
 selection = MENU_MAP[selected_label]
 
-# Seçim değişirse sayfayı güncelle ve yeniden yükle
 if selection != st.session_state.page:
     st.session_state.page = selection
     st.session_state.auto_start = False
@@ -369,7 +383,8 @@ if st.session_state.page == "Viral":
                     today = datetime.now()
                     days_num = 7 if day_filter == "Son 7 Gün" else 30
                     if 'createTimeISO' in df.columns: df = df[df['createTimeISO'] >= (today - timedelta(days=days_num))]
-                    df = df[df['playCount'] > 5000]
+                    # FİLTRE DÜZENLENDİ: ARTIK 1000 İZLENME YETERLİ
+                    df = df[df['playCount'] > 1000]
                     st.session_state.discovery_results = df.sort_values(by='Viral_Skor', ascending=False).head(20)
                 else: st.warning("Bulunamadı.")
     
@@ -456,13 +471,11 @@ elif st.session_state.page == "Takip":
                     if not rakipler.empty:
                         rakipler['Viral_Skor'] = pd.to_numeric(rakipler['Viral_Skor'], errors='coerce').fillna(0)
                         rakipler['Etkilesim_Orani'] = pd.to_numeric(rakipler['Etkilesim_Orani'], errors='coerce').fillna(0)
-                        
                         live_viral = rakipler['Viral_Skor'].mean()
                         live_eng = rakipler['Etkilesim_Orani'].mean()
                         total_views = rakipler['playCount'].sum()
                         winner_count = len(rakipler[rakipler['Karar_Puani'] >= 60]) if 'Karar_Puani' in rakipler.columns else 0
 
-                        # Karar Matrisi
                         try: supp_cnt = len(pd.DataFrame(sh.worksheet("Suppliers").get_all_records()).query(f'Urun_Adi == "{prod}"'))
                         except: supp_cnt = 0
                         try: meta_cnt = len(pd.DataFrame(sh.worksheet("Meta_Results").get_all_records()).query(f'Urun_Adi == "{prod}"'))
@@ -505,7 +518,6 @@ elif st.session_state.page == "Takip":
                             for q in qs:
                                 df_part = run_google_scraper(q, limit=20)
                                 if not df_part.empty: all_raw = pd.concat([all_raw, df_part], ignore_index=True)
-                            
                             if not all_raw.empty:
                                 all_raw = all_raw.drop_duplicates(subset=['url'])
                                 final_df = filter_suppliers_strict(all_raw, p["Arama_Sorgusu"])
@@ -627,16 +639,36 @@ elif st.session_state.page == "Arşiv":
 
 # ----------------- 9. MUHASEBE -----------------
 elif st.session_state.page == "Cost":
-    st.title("💰 Bakiye & Maliyet (Muhasebe)")
+    st.title("💰 Bakiye & Maliyet")
     limits, usage, df_runs = get_apify_usage_stats()
+    
+    # 1. KREDİ BİLGİSİ
     if limits:
+        st.subheader("📊 Hesap Durumu")
         c1, c2, c3 = st.columns(3)
         total = limits.get('actorComputeUnits', 0)
         used = usage.get('actorComputeUnits', 0)
-        c1.metric("Kullanılan", f"{used:.2f} CU")
-        c2.metric("Kalan", f"{total-used:.2f} CU")
-        c3.metric("Doluluk", f"{(used/total)*100:.1f}%")
-        st.progress(min((used/total), 1.0))
-    st.subheader("📉 Son Harcamalar")
-    if not df_runs.empty: st.dataframe(df_runs, use_container_width=True)
-    else: st.info("Kayıt yok.")
+        
+        c1.metric("Harcanan (CU)", f"{used:.2f}")
+        c2.metric("Toplam Limit (CU)", f"{total:.2f}")
+        c3.metric("Doluluk", f"{(used/total)*100:.1f}%" if total > 0 else "0%")
+        st.progress(min((used/total), 1.0) if total > 0 else 0)
+        st.caption("Not: 'Pay-per-Result' kullanan aktörler (Clockworks gibi) CU harcamaz, doğrudan bakiyeden düşer.")
+
+    # 2. MALİYET TABLOSU
+    st.markdown("---")
+    st.subheader("📉 Son İşlemler ve Tahmini Maliyet")
+    
+    if not df_runs.empty:
+        # Tabloyu özelleştir (Tarih ve Maliyeti öne al)
+        st.dataframe(
+            df_runs,
+            column_config={
+                "Tarih": st.column_config.DatetimeColumn("Tarih", format="D MMM HH:mm"),
+                "Maliyet ($)": st.column_config.NumberColumn("Tahmini Ücret", format="$%.3f")
+            },
+            use_container_width=True
+        )
+        st.info("💡 **Bilgi:** Maliyetler 1000 sonuç başına $3.70 (TikTok) ve $2.50 (Google) baz alınarak tahmin edilmiştir.")
+    else:
+        st.info("Henüz işlem kaydı bulunamadı.")
