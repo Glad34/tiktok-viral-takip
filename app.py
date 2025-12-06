@@ -63,11 +63,15 @@ def clean_text_for_query(text):
     if not text: return ""
     text = re.sub(r'#\w+', '', text)
     text = re.sub(r'[^\w\sğüşıöçĞÜŞİÖÇ]', '', text)
-    stop_words = ["keşfet", "fyp", "viral", "kapıda", "ödeme", "sipariş", "link", "bio", "banyo", "mutfak", "için", "ve", "ile", "bir", "bu"]
+    stop_words = ["keşfet", "fyp", "viral", "kapıda", "ödeme", "sipariş", "link", "bio", "banyo", "mutfak", "için", "ve", "ile", "bir", "bu", "istanbul", "türkiye"]
     words = text.split()
     filtered_words = [w for w in words if w.lower() not in stop_words]
-    # En az 3 karakterden uzun kelimeleri al
     filtered_words = [w for w in filtered_words if len(w) > 2]
+    
+    # Eğer kalan kelime sayısı çok azsa (Örn: Sadece 1 kelime kaldıysa) spesifik değildir
+    if len(filtered_words) < 2:
+        return ""
+        
     return " ".join(filtered_words[:5]).strip()
 
 def fetch_video_info(video_url):
@@ -195,7 +199,7 @@ def update_product_data(rakipler_tab_name, performans_tab_name, df, analysis_tex
         st.error(f"GÜNCELLEME HATASI: {e}")
         return False
 
-# --- SAYFA YAPILANDIRMASI VE MENÜ ---
+# --- SAYFA VE MENÜ YAPILANDIRMASI ---
 st.set_page_config(page_title="Tiktok Viral Takip", layout="wide")
 st.markdown("""<style>.stButton>button { width: 100%; border-radius: 5px; } .stDeployButton {display:none;} footer {visibility: hidden;} #MainMenu {visibility: visible;}</style>""", unsafe_allow_html=True)
 
@@ -206,16 +210,21 @@ if 'analysis_meta' not in st.session_state: st.session_state.analysis_meta = {}
 if 'transfer_url' not in st.session_state: st.session_state.transfer_url = ""
 if 'auto_start' not in st.session_state: st.session_state.auto_start = False
 
-# Sidebar Navigasyon (State Kontrollü)
+# Sidebar Navigasyon
 st.sidebar.title("Tiktok Viral Takip 🤖")
 
-# Manuel Menü Seçimi
-selection = st.sidebar.radio("Modüller", ["🔭 Viral Ürün Bulucu", "🚀 Ürün Analizi", "📂 Kaydedilenler"], 
-                             index=["🔭 Viral Ürün Bulucu", "🚀 Ürün Analizi", "📂 Kaydedilenler"].index(st.session_state.page))
+# Menü listesi
+menu_options = ["🔭 Viral Ürün Bulucu", "🚀 Ürün Analizi", "📂 Kaydedilenler"]
+
+# Sidebar'daki seçimi kontrol et
+# Eğer session_state.page listede varsa onu seçili yap, yoksa varsayılanı seç
+current_index = menu_options.index(st.session_state.page) if st.session_state.page in menu_options else 0
+selection = st.sidebar.radio("Modüller", menu_options, index=current_index)
 
 # Eğer kullanıcı menüden elle değiştirirse state'i güncelle
 if selection != st.session_state.page:
     st.session_state.page = selection
+    st.session_state.auto_start = False # Sayfa değişirse otopilotu kapat
     st.rerun()
 
 # ----------------- MODÜL 1: VİRAL ÜRÜN BULUCU -----------------
@@ -264,9 +273,11 @@ if st.session_state.page == "🔭 Viral Ürün Bulucu":
                                 st.markdown(f"[🎥 Videoya Git ↗️]({row['webVideoUrl']})", unsafe_allow_html=True)
                             with c3:
                                 st.metric("İzlenme", f"{int(row['playCount']):,}")
+                                # GERİ EKLENEN VİRAL SKOR
+                                st.metric("Viral Skor", f"%{row['Viral_Skor']:.1f}") 
                                 st.metric("Etkileşim", f"%{row['Etkilesim_Orani']:.2f}")
                             with c4:
-                                # OTOPİLORT BUTONU
+                                # OTOPİLORT VE SAYFA GEÇİŞİ
                                 if st.button("🚀 Bunu Analiz Et", key=f"btn_{index}"):
                                     st.session_state.transfer_url = row['webVideoUrl']
                                     st.session_state.auto_start = True # Otopilotu aç
@@ -293,9 +304,12 @@ elif st.session_state.page == "🚀 Ürün Analizi":
     # ORTAK ANALİZ FONKSİYONU
     def run_analysis_flow(target_url, manual_query_input):
         smart_query = ""
+        # 1. Manuel giriş varsa onu kullan
         if manual_query_input:
             smart_query = manual_query_input
             st.info(f"✍️ Manuel Arama: **{smart_query}**")
+        
+        # 2. Yoksa videodan çekmeyi dene
         else:
             with st.spinner("Video ismi algılanıyor..."):
                 raw_text, _ = fetch_video_info(target_url)
@@ -305,14 +319,14 @@ elif st.session_state.page == "🚀 Ürün Analizi":
                         st.info(f"🔎 Otomatik Sorgu: **{smart_query}**")
                     else:
                         st.warning("⚠️ Videoda spesifik ürün adı bulunamadı. Lütfen sağdaki kutuya ürün adını manuel girin.")
-                        st.session_state.auto_start = False # Otopilotu durdur
-                        return # İşlemi kes
+                        st.session_state.auto_start = False 
+                        return 
                 else:
                     st.error("Video bilgisi çekilemedi.")
                     st.session_state.auto_start = False
                     return
 
-        # Sorgu varsa analize devam et
+        # 3. Sorgu varsa analize devam et
         if smart_query:
             with st.spinner(f"'{smart_query}' için rakipler taranıyor..."):
                 related_df = search_competitors(smart_query, limit=15)
@@ -330,7 +344,7 @@ elif st.session_state.page == "🚀 Ürün Analizi":
                     st.session_state.transfer_url = "" # URL'yi temizle
                     st.session_state.auto_start = False # Otopilotu kapat
                 else:
-                    st.error("Video bulunamadı.")
+                    st.error("Rakipler bulunamadı.")
                     st.session_state.analyzed_data = None
                     st.session_state.auto_start = False
 
