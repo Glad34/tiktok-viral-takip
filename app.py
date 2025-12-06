@@ -14,7 +14,19 @@ import ast
 
 # --- SAYFA YAPILANDIRMASI (EN BAŞTA OLMALI) ---
 st.set_page_config(page_title="Tiktok Viral Takip", layout="wide")
-st.markdown("""<style>.stButton>button { width: 100%; border-radius: 5px; } .stDeployButton {display:none;} footer {visibility: hidden;} #MainMenu {visibility: visible;} [data-testid="stSidebar"] {min-width: 350px; max-width: 350px;}</style>""", unsafe_allow_html=True)
+st.markdown("""<style>.stButton>button { width: 100%; border-radius: 5px; } .stDeployButton {display:none;} footer {visibility: hidden;} #MainMenu {visibility: visible;} [data-testid="stSidebar"] {min-width: 350px; max-width: 350px;}
+
+            
+            /* 4. MODÜL AYIRICI ÇİZGİLER (YENİ ÖZELLİK) */
+    /* Menüdeki her 2 elemanda bir altına çizgi çeker */
+    div[role="radiogroup"] > label:nth-child(2),
+    div[role="radiogroup"] > label:nth-child(4),
+    div[role="radiogroup"] > label:nth-child(6) {
+        border-bottom: 1px solid rgba(255, 255, 255, 0.2); /* Çizgi Rengi ve Şeffaflığı */
+        margin-bottom: 10px !important; /* Çizgi altı boşluk */
+        padding-bottom: 10px !important; /* Çizgi üstü boşluk */
+    }
+            </style>""", unsafe_allow_html=True)
 
 # --- SESSION STATE BAŞLATMA (HATAYI ÇÖZEN KISIM - EN ÜSTE ALINDI) ---
 if 'page' not in st.session_state: st.session_state.page = "Viral"
