@@ -14,35 +14,69 @@ import numpy as np
 CREDENTIALS_FILE = "credentials.json"
 MASTER_SHEET_NAME = "Viral_Hunter_Master"
 
-# 1. APIFY TOKEN AYARI (Hem Yerel Hem Bulut Uyumlu)
+# 1. APIFY TOKEN AYARI
 if "APIFY_TOKEN" in st.secrets:
     APIFY_TOKEN = st.secrets["APIFY_TOKEN"]
 else:
-    # Yerel test için buraya şifreni yazabilirsin, ama GitHub'a atarken burayı BOŞALT veya sil.
+    # Yerel test için token (GitHub'a atarken silinmeli)
     APIFY_TOKEN = "" 
 
 client = ApifyClient(APIFY_TOKEN)
 
-# --- GOOGLE SHEETS BAĞLANTISI (Hem Yerel Hem Bulut Uyumlu) ---
+# --- ARAMA STRATEJİLERİ (AVCI KELİMELER) ---
+SEARCH_STRATEGIES = {
+    "🔥 Genel Viral Ürünler": [
+        "tiktok made me buy it", 
+        "amazon finds 2024", 
+        "cool gadgets", 
+        "aliexpress finds", 
+        "must have products"
+    ],
+    "🏠 Ev & Mutfak & Temizlik": [
+        "kitchen hacks", 
+        "cleaning gadgets", 
+        "smart home gadgets", 
+        "home decor finds", 
+        "bathroom accessories"
+    ],
+    "💄 Güzellik & Bakım": [
+        "skincare hacks", 
+        "makeup tools", 
+        "hair gadgets", 
+        "beauty finds", 
+        "glow up tips"
+    ],
+    "🚗 Araç & Teknoloji": [
+        "car accessories", 
+        "car gadgets", 
+        "phone accessories", 
+        "desk setup", 
+        "tech gadgets"
+    ],
+    "👶 Anne & Bebek & Oyuncak": [
+        "mom hacks", 
+        "baby must haves", 
+        "toys for kids", 
+        "parenting gadgets", 
+        "kids activities"
+    ]
+}
+
+# --- GOOGLE SHEETS BAĞLANTISI ---
 def get_gspread_client():
     scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
     
-    # A. Streamlit Cloud (Secrets) Kontrolü
     if "gcp_service_account" in st.secrets:
         creds_dict = st.secrets["gcp_service_account"]
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-    
-    # B. Yerel Dosya (credentials.json) Kontrolü
     elif os.path.exists(CREDENTIALS_FILE):
         creds = ServiceAccountCredentials.from_json_keyfile_name(CREDENTIALS_FILE, scope)
-    
     else:
         st.error("🚨 Kimlik doğrulama başarısız! 'credentials.json' dosyası yok veya Secrets ayarlanmamış.")
         st.stop()
         
     return gspread.authorize(creds)
 
-# --- EKSİK OLAN FONKSİYON BURAYA EKLENDİ ---
 def init_master_sheet():
     gc = get_gspread_client()
     try:
@@ -75,6 +109,7 @@ def fetch_video_info(video_url):
     return (items[0].get('text', ''), items[0]) if items else (None, None)
 
 def search_competitors(query, limit=15):
+    # Arama yaparken Clockworks'e searchQueries gönderiyoruz
     run_input = {"searchQueries": [query], "resultsPerPage": limit}
     run = client.actor("clockworks/tiktok-scraper").call(run_input=run_input)
     if run.get("defaultDatasetId"):
@@ -88,7 +123,7 @@ def calculate_metrics(df):
         if col not in df.columns: df[col] = 0
         df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
     
-    # Tarih Formatı Düzeltme (Naive/Aware Hatası İçin)
+    # Tarih Formatı Düzeltme
     if 'createTimeISO' not in df.columns: 
         df['createTimeISO'] = pd.NaT
     else:
@@ -155,20 +190,16 @@ def generate_smart_analysis(df):
 def save_to_existing_sheet(urun_adi, url, query, df, analysis_text, avg_viral_score, status, next_check_date):
     status_msg = st.empty()
     status_msg.info("⏳ Google E-Tabloya bağlanılıyor...")
-    
     try:
         sh = init_master_sheet()
-        
         unique_id = uuid.uuid4().hex[:6]
         rakipler_tab_name = f"R_{unique_id}"
         performans_tab_name = f"P_{unique_id}"
         
-        status_msg.info(f"⏳ '{rakipler_tab_name}' sekmesi oluşturuluyor...")
         ws_rakipler = sh.add_worksheet(title=rakipler_tab_name, rows="100", cols="20")
         clean_df = df.fillna("").astype(str)
         ws_rakipler.update([clean_df.columns.values.tolist()] + clean_df.values.tolist())
         
-        status_msg.info(f"⏳ '{performans_tab_name}' sekmesi oluşturuluyor...")
         ws_perf = sh.add_worksheet(title=performans_tab_name, rows="100", cols="10")
         ws_perf.append_row(["Tarih", "Ort_Viral_Skor", "Toplam_Izlenme", "Winner_Sayisi", "Analiz_Notu"])
         
@@ -178,15 +209,7 @@ def save_to_existing_sheet(urun_adi, url, query, df, analysis_text, avg_viral_sc
         ws_perf.append_row([str(datetime.now().date()), avg_viral_score, total_views, winner_count, analysis_text])
         
         master_ws = sh.worksheet("List")
-        master_ws.append_row([
-            unique_id, urun_adi, rakipler_tab_name, performans_tab_name, 
-            str(datetime.now().date()), 
-            next_check_date,
-            avg_viral_score, 
-            status, 
-            url, 
-            query
-        ])
+        master_ws.append_row([unique_id, urun_adi, rakipler_tab_name, performans_tab_name, str(datetime.now().date()), next_check_date, avg_viral_score, status, url, query])
         
         status_msg.success(f"✅ Başarılı! Veriler kaydedildi.")
         return True
@@ -206,7 +229,6 @@ def update_product_data(rakipler_tab_name, performans_tab_name, df, analysis_tex
         total_views = int(df['playCount'].sum())
         winner_count = int(df[df['Karar_Puani'] >= 60].shape[0])
         avg_viral_score = float(avg_viral_score)
-        
         ws_perf.append_row([str(datetime.now().date()), avg_viral_score, total_views, winner_count, analysis_text])
         return True
     except Exception as e:
@@ -217,11 +239,9 @@ def update_product_data(rakipler_tab_name, performans_tab_name, df, analysis_tex
 
 st.set_page_config(page_title="Tiktok Viral Takip", layout="wide")
 
-# CSS: Deploy butonunu ve Footer'ı gizle
 st.markdown("""
 <style>
     .stButton>button { width: 100%; border-radius: 5px; }
-    .reportview-container .main .block-container { max_width: 1400px; }
     .stDeployButton {display:none;}
     footer {visibility: hidden;}
     #MainMenu {visibility: visible;}
@@ -229,22 +249,96 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.sidebar.title("Tiktok Viral Takip 🤖")
-menu = st.sidebar.radio("Menü", ["Yeni Ürün Analizi", "Kaydedilenler (Takip)"])
+menu = st.sidebar.radio("Modüller", ["🔭 Viral Ürün Bulucu", "🚀 Ürün Analizi", "📂 Kaydedilenler"])
 
 # SESSION STATE
-if 'analyzed_data' not in st.session_state:
-    st.session_state.analyzed_data = None
-if 'analysis_meta' not in st.session_state:
-    st.session_state.analysis_meta = {}
+if 'analyzed_data' not in st.session_state: st.session_state.analyzed_data = None
+if 'analysis_meta' not in st.session_state: st.session_state.analysis_meta = {}
+# Analiz sayfasına transfer için URL tutucu
+if 'transfer_url' not in st.session_state: st.session_state.transfer_url = ""
 
-if menu == "Yeni Ürün Analizi":
-    st.title("🚀 Yeni Ürün Analizi")
+
+# ----------------- MODÜL 1: VİRAL ÜRÜN BULUCU -----------------
+if menu == "🔭 Viral Ürün Bulucu":
+    st.title("🔭 Viral Ürün Keşfi")
+    st.markdown("Kategori seçin, yapay zeka sizin için **son 30 günün** potansiyel ürünlerini bulsun.")
+    
+    col_cat, col_day = st.columns([3, 1])
+    with col_cat:
+        category = st.selectbox("Kategori Seçiniz:", list(SEARCH_STRATEGIES.keys()))
+    with col_day:
+        days_filter = st.selectbox("Zaman Filtresi:", ["Son 7 Gün", "Son 30 Gün"], index=1)
+        
+    if st.button("🔍 Ürünleri Ara"):
+        # Rastgele bir arama terimi seçiyoruz ki her seferinde aynı sonuçlar gelmesin
+        import random
+        selected_query = random.choice(SEARCH_STRATEGIES[category])
+        
+        with st.spinner(f"'{selected_query}' terimiyle {days_filter} içindeki trendler taranıyor..."):
+            # Daha geniş bir arama yapıyoruz (50 video)
+            df_discovery = search_competitors(selected_query, limit=50)
+            
+            if not df_discovery.empty:
+                # METRİK HESAPLA
+                df_discovery = calculate_metrics(df_discovery)
+                
+                # FİLTRELEME MANTIĞI
+                # 1. Tarih Filtresi
+                today = datetime.now()
+                days_num = 7 if days_filter == "Son 7 Gün" else 30
+                df_discovery = df_discovery[df_discovery['createTimeISO'] >= (today - timedelta(days=days_num))]
+                
+                # 2. Çöp Video Filtresi (Min 10k izlenme)
+                df_discovery = df_discovery[df_discovery['playCount'] > 10000]
+                
+                # 3. Sıralama (En yüksek Viral Skor en üstte)
+                df_discovery = df_discovery.sort_values(by='Viral_Skor', ascending=False).head(20)
+                
+                st.success(f"✅ {len(df_discovery)} adet potansiyel viral ürün bulundu!")
+                
+                # KART GÖRÜNÜMÜ
+                for index, row in df_discovery.iterrows():
+                    with st.container():
+                        c1, c2, c3, c4 = st.columns([1, 3, 2, 2])
+                        with c1:
+                            if row.get('videoMeta') and isinstance(row['videoMeta'], dict):
+                                cover = row['videoMeta'].get('coverUrl', '')
+                                if cover: st.image(cover, use_column_width=True)
+                            else:
+                                st.write("🎥")
+                        
+                        with c2:
+                            st.write(f"**{row['text'][:100]}...**")
+                            st.caption(f"Tarih: {row['createTimeISO'].date()}")
+                            
+                        with c3:
+                            st.metric("İzlenme", f"{int(row['playCount']):,}")
+                            st.metric("Viral Skor", f"%{row['Viral_Skor']:.1f}")
+                            
+                        with c4:
+                            # BUTONA BASINCA URL'Yİ TRANSFER ET VE ANALİZ SAYFASINA GİT
+                            if st.button("🚀 Bunu Analiz Et", key=f"btn_{index}"):
+                                st.session_state.transfer_url = row['webVideoUrl']
+                                # Sayfayı yenilemek yerine kullanıcıyı yönlendirmesi için mesaj
+                                st.success("URL Kopyalandı! Lütfen sol menüden '🚀 Ürün Analizi'ne gidin.")
+                        
+                        st.markdown("---")
+            else:
+                st.warning("Bu kategoride şu an taze veri bulunamadı. Lütfen tekrar deneyin.")
+
+
+# ----------------- MODÜL 2: ÜRÜN ANALİZİ -----------------
+elif menu == "🚀 Ürün Analizi":
+    st.title("🚀 Detaylı Ürün Analizi")
+    
+    # Eğer transfer edilen URL varsa kutuya onu yaz
+    default_url = st.session_state.transfer_url if st.session_state.transfer_url else ""
     
     col_input1, col_input2 = st.columns([2, 1])
     with col_input1:
-        url = st.text_input("TikTok Video URL:", placeholder="https://...")
+        url = st.text_input("TikTok Video URL:", value=default_url, placeholder="https://...")
     with col_input2:
-        manual_prod_name = st.text_input("Ürün Adı (Opsiyonel):", help="Açıklaması olmayan videolar için buraya ürün adını manuel yazın.")
+        manual_prod_name = st.text_input("Ürün Adı (Opsiyonel):", help="Manuel giriş.")
     
     if st.button("Analiz Et"):
         if not url:
@@ -253,19 +347,19 @@ if menu == "Yeni Ürün Analizi":
             smart_query = ""
             if manual_prod_name:
                 smart_query = manual_prod_name
-                st.info(f"✍️ Manuel Arama Modu: **{smart_query}** ile rakipler aranıyor...")
+                st.info(f"✍️ Manuel Arama: **{smart_query}**")
             else:
                 with st.spinner("Video inceleniyor..."):
                     raw_text, _ = fetch_video_info(url)
                     if raw_text:
                         smart_query = clean_text_for_query(raw_text)
-                        st.info(f"🔎 Otomatik Algılanan Sorgu: **{smart_query}**")
+                        st.info(f"🔎 Otomatik Sorgu: **{smart_query}**")
                     else:
-                        st.warning("⚠️ Videoda açıklama/ürün adı bulunamadı! Lütfen 'Ürün Adı' kutusunu doldurun.")
+                        st.warning("⚠️ Videoda açıklama yok! Manuel ad girin.")
                         st.stop()
             
             if smart_query:
-                with st.spinner(f"'{smart_query}' için pazar analizi yapılıyor..."):
+                with st.spinner(f"'{smart_query}' için pazar analizi..."):
                     related_df = search_competitors(smart_query, limit=15)
                     
                     if not related_df.empty:
@@ -274,42 +368,33 @@ if menu == "Yeni Ürün Analizi":
                         
                         st.session_state.analyzed_data = analyzed
                         st.session_state.analysis_meta = {
-                            "query": smart_query,
-                            "url": url,
-                            "ai_text": ai_text,
-                            "next_date": next_date, 
-                            "avg_viral": analyzed['Viral_Skor'].mean(),
-                            "avg_score": analyzed['Karar_Puani'].mean(),
+                            "query": smart_query, "url": url, "ai_text": ai_text, "next_date": next_date, 
+                            "avg_viral": analyzed['Viral_Skor'].mean(), "avg_score": analyzed['Karar_Puani'].mean(),
                             "status": "WINNER 🏆" if analyzed['Karar_Puani'].mean() >= 60 else "NORMAL"
                         }
+                        # Analiz bitince transfer url'yi temizle
+                        st.session_state.transfer_url = ""
                     else:
-                        st.error(f"'{smart_query}' ile ilgili video bulunamadı.")
+                        st.error("Video bulunamadı.")
                         st.session_state.analyzed_data = None
 
     if st.session_state.analyzed_data is not None:
         analyzed = st.session_state.analyzed_data
         meta = st.session_state.analysis_meta
-        
         col1, col2 = st.columns([1, 2])
         with col1:
             st.metric("Ort. Puan", f"{meta['avg_score']:.1f}")
             st.metric("Ort. Viral Skor", f"%{meta['avg_viral']:.1f}")
-            
             st.markdown(meta['ai_text'])
-            st.info(f"📅 Önerilen Takip Tarihi: **{meta['next_date']}**")
-            
+            st.info(f"📅 Sonraki Kontrol: **{meta['next_date']}**")
             st.markdown("---")
             if st.button("💾 BU ÜRÜNÜ KAYDET"):
-                success = save_to_existing_sheet(
-                    meta['query'], meta['url'], meta['query'], analyzed, 
-                    meta['ai_text'], meta['avg_viral'], meta['status'], meta['next_date']
-                )
+                success = save_to_existing_sheet(meta['query'], meta['url'], meta['query'], analyzed, meta['ai_text'], meta['avg_viral'], meta['status'], meta['next_date'])
                 if success:
                     st.session_state.analyzed_data = None
                     st.session_state.analysis_meta = {}
                     time.sleep(1)
                     st.rerun()
-
         with col2:
             st.subheader("Rakipler")
             if 'webVideoUrl' in analyzed.columns:
@@ -317,13 +402,15 @@ if menu == "Yeni Ürün Analizi":
             else:
                  st.dataframe(analyzed)
 
-elif menu == "Kaydedilenler (Takip)":
+
+# ----------------- MODÜL 3: KAYDEDİLENLER -----------------
+elif menu == "📂 Kaydedilenler":
     st.title("📂 Kaydedilen Ürünler")
     sh = init_master_sheet()
     try:
         data = sh.worksheet("List").get_all_records()
         if not data:
-            st.warning("Henüz kaydedilmiş ürün yok.")
+            st.warning("Henüz ürün yok.")
         else:
             master_df = pd.DataFrame(data)
             product_list = master_df['Urun_Adi'].tolist()
@@ -339,10 +426,10 @@ elif menu == "Kaydedilenler (Takip)":
                     rakipler_data = sh.worksheet(rakipler_tab).get_all_records()
                     rakipler_df = pd.DataFrame(rakipler_data)
                     st.info(f"Ürün: {selected_prod_name} | Durum: {prod_data['Durum']}")
-                    st.warning(f"📅 Planlanan Kontrol: {prod_data['Sonraki_Analiz_Tarihi']}")
+                    st.warning(f"📅 Kontrol: {prod_data['Sonraki_Analiz_Tarihi']}")
                     col1, col2 = st.columns([2, 1])
                     with col1:
-                        st.subheader("📈 Performans Geçmişi")
+                        st.subheader("📈 Performans")
                         if not perf_df.empty:
                             st.dataframe(perf_df)
                             st.line_chart(perf_df['Toplam_Izlenme'])
@@ -360,9 +447,9 @@ elif menu == "Kaydedilenler (Takip)":
                                         st.success("Güncellendi!")
                                         time.sleep(1)
                                         st.rerun()
-                    st.subheader("📋 Kayıtlı Rakip Listesi")
+                    st.subheader("📋 Rakip Listesi")
                     st.dataframe(rakipler_df)
                 except gspread.exceptions.WorksheetNotFound:
-                    st.error("Hata: Sekmeler bulunamadı.")
+                    st.error("Sekmeler silinmiş.")
     except Exception as e:
         st.error(f"Veri Hatası: {e}")
