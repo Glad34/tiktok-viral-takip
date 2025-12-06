@@ -258,7 +258,7 @@ MENU_MAP = {
     "🚀 Ürün Analizi (Avcı)": "Analiz",
     "📈 Takip Edilenler (Merkez)": "Takip",
     "📌 Kaydedilenler (Depo)": "Depo",
-    "────────────────": None, # Ayırıcı
+    
     "🏭 Tedarikçi Bulucu (İstihbarat)": "Tedarik",
     "🗃️ Tedarikçi Veritabanı (Arşiv)": "Arşiv"
 }
