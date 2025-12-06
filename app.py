@@ -463,35 +463,69 @@ elif st.session_state.page == "📈 Takip Edilenler":
                         st.info(last_row['Analiz_Notu'])
                     
                     # --- TİCARİ AKSİYONLAR ---
+                    # 2. TİCARİ AKSİYONLAR (GÜNCELLENDİ: SOSYAL MEDYA FİLTRESİ)
                     st.markdown("---")
                     st.subheader("🕵️ Ticari İstihbarat")
+                    
                     col_meta, col_supp = st.columns(2)
+                    
+                    # A. META & RAKİP BUTONU (Sadece Sosyal Medya Arar)
                     with col_meta:
                         if st.button("📢 Meta Reklam/Rakip Taraması Başlat", use_container_width=True):
                             with st.spinner("Google üzerinden Meta/Rakip izleri taranıyor..."):
-                                meta_query = f'"{product_query}" site:facebook.com OR site:instagram.com "shop" OR "fiyat"'
+                                # Sadece Facebook ve Instagram'da arama yap
+                                meta_query = f'"{product_query}" site:facebook.com OR site:instagram.com "fiyat" OR "sipariş" OR "shop"'
+                                
                                 df_meta = run_google_scraper(meta_query, limit=10)
                                 if not df_meta.empty:
                                     rows_to_save = []
                                     for _, row in df_meta.iterrows():
-                                        rows_to_save.append([str(product_id), str(datetime.now().date()), selected_prod_name, row.get('title', ''), row.get('url', ''), row.get('description', ''), "Meta/Social"])
+                                        rows_to_save.append([
+                                            str(product_id), 
+                                            str(datetime.now().date()), 
+                                            selected_prod_name,
+                                            row.get('title', ''), 
+                                            row.get('url', ''), 
+                                            row.get('description', ''),
+                                            "Meta/Social"
+                                        ])
                                     save_extra_results("Meta_Results", rows_to_save)
-                                    st.success(f"{len(df_meta)} adet rakip izi bulundu!")
+                                    st.success(f"✅ {len(df_meta)} adet rakip reklamı bulundu!")
                                 else:
                                     st.warning("İz bulunamadı.")
+
+                    # B. TEDARİKÇİ BUTONU (Sosyal Medyayı ENGELLER, Sadece Site Arar)
                     with col_supp:
                         if st.button("🏭 Tedarikçi & Toptancı Bul", use_container_width=True):
-                            with st.spinner("Toptancı taranıyor..."):
-                                supp_query = f'"{product_query}" toptan satış iletişim OR imalatçı'
-                                df_supp = run_google_scraper(supp_query, limit=10)
+                            with st.spinner("Gerçek satıcı ve toptancılar taranıyor (TikTok hariç)..."):
+                                # BURASI DÜZELTİLDİ: TikTok, FB, IG, Youtube sonuçlarını ÇIKAR (-site:...)
+                                # Hem toptan hem perakende fiyatlarını görmek için terimleri genişlettim
+                                supp_query = f'"{product_query}" (fiyat OR satın al OR toptan OR bayi OR sipariş) -site:tiktok.com -site:instagram.com -site:facebook.com -site:youtube.com -site:pinterest.com'
+                                
+                                df_supp = run_google_scraper(supp_query, limit=15) # Limit artırıldı
                                 if not df_supp.empty:
                                     rows_to_save = []
                                     for _, row in df_supp.iterrows():
-                                        rows_to_save.append([str(product_id), str(datetime.now().date()), selected_prod_name, row.get('title', ''), row.get('url', ''), row.get('description', ''), supp_query])
-                                    save_extra_results("Suppliers", rows_to_save)
-                                    st.success(f"{len(df_supp)} adet tedarikçi bulundu!")
+                                        # Başlık veya Linkte "video" geçenleri de manuel eleyelim (Garanti olsun)
+                                        url_check = row.get('url', '').lower()
+                                        if "tiktok" not in url_check and "instagram" not in url_check:
+                                            rows_to_save.append([
+                                                str(product_id), 
+                                                str(datetime.now().date()), 
+                                                selected_prod_name,
+                                                row.get('title', ''), 
+                                                row.get('url', ''), 
+                                                row.get('description', ''),
+                                                "Google Search (Web)"
+                                            ])
+                                    
+                                    if rows_to_save:
+                                        save_extra_results("Suppliers", rows_to_save)
+                                        st.success(f"✅ {len(rows_to_save)} adet gerçek satıcı/tedarikçi bulundu!")
+                                    else:
+                                        st.warning("Uygun web sitesi bulunamadı.")
                                 else:
-                                    st.warning("Tedarikçi bulunamadı.")
+                                    st.warning("Sonuç bulunamadı.")
 
                     st.subheader("⚡ Veri Güncelleme")
                     limit = st.slider("Taranacak Video Sayısı", 15, 50, 15)
