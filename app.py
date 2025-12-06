@@ -49,28 +49,28 @@ def init_master_sheet():
     gc = get_gspread_client()
     try:
         sh = gc.open(MASTER_SHEET_NAME)
-        # 1. List (Takip)
+        # 1. List
         try:
             sh.worksheet("List")
         except:
             ws = sh.add_worksheet(title="List", rows="100", cols="10")
             ws.append_row(["ID", "Urun_Adi", "Rakipler_Sekme_Adi", "Performans_Sekme_Adi", "Son_Analiz_Tarihi", "Sonraki_Analiz_Tarihi", "Son_Viral_Skor", "Durum", "URL", "Arama_Sorgusu"])
         
-        # 2. Bookmarks (Hızlı Kayıt)
+        # 2. Bookmarks
         try:
             sh.worksheet("Bookmarks")
         except:
             ws_bm = sh.add_worksheet(title="Bookmarks", rows="100", cols="10")
             ws_bm.append_row(["Tarih", "Aciklama", "Izlenme", "Viral_Skor", "Etkilesim", "Video_URL", "Resim_URL"])
             
-        # 3. Meta_Results (YENİ)
+        # 3. Meta_Results
         try:
             sh.worksheet("Meta_Results")
         except:
             ws_meta = sh.add_worksheet(title="Meta_Results", rows="100", cols="10")
             ws_meta.append_row(["ID", "Tarih", "Urun_Adi", "Baslik", "Link", "Aciklama", "Kaynak"])
 
-        # 4. Suppliers (YENİ)
+        # 4. Suppliers
         try:
             sh.worksheet("Suppliers")
         except:
@@ -117,10 +117,10 @@ def search_competitors(query, limit=15):
         return pd.DataFrame(items)
     return pd.DataFrame()
 
-# YENİ: Google Search Scraper (Meta ve Tedarikçi İçin)
+# --- DÜZELTİLEN FONKSİYON (HATA BURADAYDI) ---
 def run_google_scraper(query, limit=10):
     run_input = {
-        "queries": [query],
+        "queries": query, # KÖŞELİ PARANTEZLER KALDIRILDI (List değil String olmalı)
         "resultsPerPage": limit,
         "countryCode": "tr",
         "languageCode": "tr",
@@ -130,7 +130,6 @@ def run_google_scraper(query, limit=10):
     run = client.actor("apify/google-search-scraper").call(run_input=run_input)
     if run.get("defaultDatasetId"):
         items = client.dataset(run["defaultDatasetId"]).list_items().items
-        # Sonuçlar genelde items[0]['organicResults'] içindedir
         all_results = []
         for item in items:
             if 'organicResults' in item:
@@ -222,17 +221,22 @@ def save_to_tracking_sheet(urun_adi, url, query, df, analysis_text, avg_viral_sc
         unique_id = uuid.uuid4().hex[:6]
         rakipler_tab_name = f"R_{unique_id}"
         performans_tab_name = f"P_{unique_id}"
+        
         ws_rakipler = sh.add_worksheet(title=rakipler_tab_name, rows="100", cols="20")
         clean_df = df.fillna("").astype(str)
         ws_rakipler.update([clean_df.columns.values.tolist()] + clean_df.values.tolist())
+        
         ws_perf = sh.add_worksheet(title=performans_tab_name, rows="100", cols="10")
         ws_perf.append_row(["Tarih", "Ort_Viral_Skor", "Toplam_Izlenme", "Winner_Sayisi", "Analiz_Notu"])
+        
         total_views = int(df['playCount'].sum())
         winner_count = int(df[df['Karar_Puani'] >= 60].shape[0])
         avg_viral_score = float(avg_viral_score)
         ws_perf.append_row([str(datetime.now().date()), avg_viral_score, total_views, winner_count, analysis_text])
+        
         master_ws = sh.worksheet("List")
         master_ws.append_row([unique_id, urun_adi, rakipler_tab_name, performans_tab_name, str(datetime.now().date()), next_check_date, avg_viral_score, status, url, query])
+        
         status_msg.success(f"✅ Başarıyla takibe alındı.")
         return True
     except Exception as e:
@@ -256,7 +260,6 @@ def update_product_data(rakipler_tab_name, performans_tab_name, df, analysis_tex
         st.error(f"GÜNCELLEME HATASI: {e}")
         return False
 
-# YENİ: Meta/Tedarikçi Kaydetme
 def save_extra_results(sheet_name, data_list):
     try:
         sh = init_master_sheet()
@@ -290,10 +293,8 @@ if selection != st.session_state.page:
     st.rerun()
 
 # ----------------- MODÜL 1-2-4 (AYNI) -----------------
-# (Yer kaplamaması için Modül 1, 2 ve 4'ü önceki kodla aynı varsayıyorum, sadece MODÜL 3'ü güncelledim ve YENİ MODÜLLERİ ekledim)
-# ... [Modül 1 ve 2 Kodları BURAYA GELECEK - Değişiklik Yok] ...
 if st.session_state.page == "🔭 Viral Ürün Bulucu":
-    # --- AYNI KOD (V13.0'dan al) ---
+    # (Kod V14 ile aynı - Değişiklik Yok)
     st.title("🔭 Türkiye Viral Ürün Keşfi")
     search_type = st.radio("Arama Yöntemi:", ["Kategoriden Seç", "Manuel Hashtag/Kelime Ara"], horizontal=True)
     col_cat, col_day = st.columns([3, 1])
@@ -353,7 +354,6 @@ if st.session_state.page == "🔭 Viral Ürün Bulucu":
                 st.markdown("---")
 
 elif st.session_state.page == "🚀 Ürün Analizi":
-    # --- AYNI KOD (V13.0'dan al) ---
     st.title("🚀 Detaylı Ürün Analizi")
     url_val = st.session_state.transfer_url if st.session_state.transfer_url else ""
     col_input1, col_input2 = st.columns([2, 1])
@@ -371,7 +371,7 @@ elif st.session_state.page == "🚀 Ürün Analizi":
                     smart_query = clean_text_for_query(raw_text)
                     if smart_query: st.info(f"🔎 Otomatik Sorgu: **{smart_query}**")
                     else:
-                        st.warning("⚠️ Ürün adı bulunamadı. Lütfen sağ kutuya manuel girin.")
+                        st.warning("⚠️ Videoda spesifik ürün adı bulunamadı. Lütfen sağ kutuya manuel girin.")
                         st.session_state.auto_start = False 
                         return 
                 else:
@@ -424,7 +424,7 @@ elif st.session_state.page == "🚀 Ürün Analizi":
             else:
                  st.dataframe(analyzed)
 
-# ----------------- MODÜL 3: TAKİP EDİLENLER (GÜNCELLENDİ) -----------------
+# ----------------- MODÜL 3: TAKİP EDİLENLER -----------------
 elif st.session_state.page == "📈 Takip Edilenler":
     st.title("📈 Takip Edilen Ürünler")
     sh = init_master_sheet()
@@ -453,7 +453,6 @@ elif st.session_state.page == "📈 Takip Edilenler":
                     st.info(f"Ürün: **{selected_prod_name}** | Durum: **{prod_data['Durum']}**")
                     st.warning(f"📅 Planlanan Kontrol: **{prod_data['Sonraki_Analiz_Tarihi']}**")
                     
-                    # 1. PERFORMANS KARTLARI
                     if not perf_df.empty:
                         last_row = perf_df.iloc[-1]
                         c1, c2, c3 = st.columns(3)
@@ -463,62 +462,37 @@ elif st.session_state.page == "📈 Takip Edilenler":
                         st.markdown("### 📝 Yapay Zeka Notu")
                         st.info(last_row['Analiz_Notu'])
                     
-                    # 2. TİCARİ AKSİYONLAR (YENİ)
+                    # --- TİCARİ AKSİYONLAR ---
                     st.markdown("---")
                     st.subheader("🕵️ Ticari İstihbarat")
-                    
                     col_meta, col_supp = st.columns(2)
-                    
-                    # Meta & Rakip Butonu
                     with col_meta:
                         if st.button("📢 Meta Reklam/Rakip Taraması Başlat", use_container_width=True):
                             with st.spinner("Google üzerinden Meta/Rakip izleri taranıyor..."):
-                                # Google'da "site:facebook.com" ve "site:instagram.com" araması
                                 meta_query = f'"{product_query}" site:facebook.com OR site:instagram.com "shop" OR "fiyat"'
                                 df_meta = run_google_scraper(meta_query, limit=10)
                                 if not df_meta.empty:
-                                    # Sonuçları Kaydet
                                     rows_to_save = []
                                     for _, row in df_meta.iterrows():
-                                        rows_to_save.append([
-                                            str(product_id), 
-                                            str(datetime.now().date()), 
-                                            selected_prod_name,
-                                            row.get('title', ''), 
-                                            row.get('url', ''), 
-                                            row.get('description', ''),
-                                            "Meta/Social"
-                                        ])
+                                        rows_to_save.append([str(product_id), str(datetime.now().date()), selected_prod_name, row.get('title', ''), row.get('url', ''), row.get('description', ''), "Meta/Social"])
                                     save_extra_results("Meta_Results", rows_to_save)
-                                    st.success(f"{len(df_meta)} adet rakip izi bulundu ve 'Meta & Rakip Sonuçları' sayfasına kaydedildi.")
+                                    st.success(f"{len(df_meta)} adet rakip izi bulundu!")
                                 else:
-                                    st.warning("Google'da ilgili Meta reklam izi bulunamadı.")
-
-                    # Tedarikçi Butonu
+                                    st.warning("İz bulunamadı.")
                     with col_supp:
                         if st.button("🏭 Tedarikçi & Toptancı Bul", use_container_width=True):
-                            with st.spinner("Toptancı ve İmalatçılar taranıyor..."):
+                            with st.spinner("Toptancı taranıyor..."):
                                 supp_query = f'"{product_query}" toptan satış iletişim OR imalatçı'
                                 df_supp = run_google_scraper(supp_query, limit=10)
                                 if not df_supp.empty:
-                                    # Sonuçları Kaydet
                                     rows_to_save = []
                                     for _, row in df_supp.iterrows():
-                                        rows_to_save.append([
-                                            str(product_id), 
-                                            str(datetime.now().date()), 
-                                            selected_prod_name,
-                                            row.get('title', ''), 
-                                            row.get('url', ''), 
-                                            row.get('description', ''),
-                                            supp_query
-                                        ])
+                                        rows_to_save.append([str(product_id), str(datetime.now().date()), selected_prod_name, row.get('title', ''), row.get('url', ''), row.get('description', ''), supp_query])
                                     save_extra_results("Suppliers", rows_to_save)
-                                    st.success(f"{len(df_supp)} adet tedarikçi bulundu ve 'Tedarikçi Veritabanı'na kaydedildi.")
+                                    st.success(f"{len(df_supp)} adet tedarikçi bulundu!")
                                 else:
                                     st.warning("Tedarikçi bulunamadı.")
 
-                    # 3. VERİ GÜNCELLEME
                     st.subheader("⚡ Veri Güncelleme")
                     limit = st.slider("Taranacak Video Sayısı", 15, 50, 15)
                     if st.button("🔄 TİKTOK VERİLERİNİ GÜNCELLE"):
@@ -533,7 +507,6 @@ elif st.session_state.page == "📈 Takip Edilenler":
                                     time.sleep(1)
                                     st.rerun()
                     
-                    # 4. RAKİP LİSTESİ
                     st.markdown("---")
                     st.subheader("📋 Rakip Listesi (Temizlenmiş Veri)")
                     wanted_cols = ['text', 'playCount', 'diggCount', 'Viral_Skor', 'Etkilesim_Orani', 'hashtags', 'createTimeISO']
@@ -542,27 +515,14 @@ elif st.session_state.page == "📈 Takip Edilenler":
                     if 'hashtags' in df_clean.columns: df_clean['hashtags'] = df_clean['hashtags'].apply(clean_hashtags_display)
                     rename_map = {'text': 'Başlık', 'playCount': 'İzlenme', 'diggCount': 'Beğeni', 'Viral_Skor': 'Viral Skor', 'Etkilesim_Orani': 'Etkileşim %', 'createTimeISO': 'Tarih', 'hashtags': 'Etiketler'}
                     df_clean = df_clean.rename(columns=rename_map)
-                    
-                    st.data_editor(
-                        df_clean,
-                        use_container_width=True,
-                        column_config={
-                            "İzlenme": st.column_config.NumberColumn(format="%d"),
-                            "Beğeni": st.column_config.NumberColumn(format="%d"),
-                            "Viral Skor": st.column_config.NumberColumn(format="%.1f"),
-                            "Etkileşim %": st.column_config.NumberColumn(format="%.2f")
-                        },
-                        disabled=True
-                    )
-                    
+                    st.data_editor(df_clean, use_container_width=True, column_config={"İzlenme": st.column_config.NumberColumn(format="%d"), "Beğeni": st.column_config.NumberColumn(format="%d"), "Viral Skor": st.column_config.NumberColumn(format="%.1f"), "Etkileşim %": st.column_config.NumberColumn(format="%.2f")}, disabled=True)
                 except gspread.exceptions.WorksheetNotFound:
                     st.error("Sekmeler silinmiş.")
     except Exception as e:
         st.error(f"Veri Hatası: {e}")
 
-# ----------------- MODÜL 4 (AYNI) -----------------
+# ----------------- MODÜL 4: KAYDEDİLENLER -----------------
 elif st.session_state.page == "📌 Kaydedilenler":
-    # --- AYNI KOD (V14.0'dan al) ---
     st.title("📌 Hızlı Kaydedilenler")
     sh = init_master_sheet()
     try:
@@ -588,7 +548,7 @@ elif st.session_state.page == "📌 Kaydedilenler":
     except Exception as e:
         st.error(f"Hata: {e}")
 
-# ----------------- MODÜL 5: META SONUÇLARI (YENİ) -----------------
+# ----------------- MODÜL 5: META SONUÇLARI -----------------
 elif st.session_state.page == "📢 Meta & Rakip Sonuçları":
     st.title("📢 Meta & Rakip İstihbaratı")
     sh = init_master_sheet()
@@ -599,24 +559,14 @@ elif st.session_state.page == "📢 Meta & Rakip Sonuçları":
             st.info("Henüz Meta taraması yapılmamış. 'Takip Edilenler' sayfasından başlatabilirsiniz.")
         else:
             df_meta = pd.DataFrame(data)
-            # Ürün bazlı filtreleme
             unique_products = df_meta['Urun_Adi'].unique()
             selected_prod = st.selectbox("Filtrele (Ürün):", ["Tümü"] + list(unique_products))
-            
-            if selected_prod != "Tümü":
-                df_meta = df_meta[df_meta['Urun_Adi'] == selected_prod]
-            
-            st.data_editor(
-                df_meta[['Tarih', 'Urun_Adi', 'Baslik', 'Link', 'Aciklama']],
-                column_config={
-                    "Link": st.column_config.LinkColumn("Link", display_text="🔗 Git")
-                },
-                use_container_width=True, hide_index=True
-            )
+            if selected_prod != "Tümü": df_meta = df_meta[df_meta['Urun_Adi'] == selected_prod]
+            st.data_editor(df_meta[['Tarih', 'Urun_Adi', 'Baslik', 'Link', 'Aciklama']], column_config={"Link": st.column_config.LinkColumn("Link", display_text="🔗 Git")}, use_container_width=True, hide_index=True)
     except Exception as e:
         st.error(f"Hata: {e}")
 
-# ----------------- MODÜL 6: TEDARİKÇİLER (YENİ) -----------------
+# ----------------- MODÜL 6: TEDARİKÇİLER -----------------
 elif st.session_state.page == "🏭 Tedarikçi Veritabanı":
     st.title("🏭 Tedarikçi Veritabanı")
     sh = init_master_sheet()
@@ -629,16 +579,7 @@ elif st.session_state.page == "🏭 Tedarikçi Veritabanı":
             df_supp = pd.DataFrame(data)
             unique_products = df_supp['Urun_Adi'].unique()
             selected_prod = st.selectbox("Filtrele (Ürün):", ["Tümü"] + list(unique_products))
-            
-            if selected_prod != "Tümü":
-                df_supp = df_supp[df_supp['Urun_Adi'] == selected_prod]
-            
-            st.data_editor(
-                df_supp[['Tarih', 'Urun_Adi', 'Tedarikci_Baslik', 'Web_Sitesi', 'Aciklama']],
-                column_config={
-                    "Web_Sitesi": st.column_config.LinkColumn("Siteye Git", display_text="🌍 Ziyaret Et")
-                },
-                use_container_width=True, hide_index=True
-            )
+            if selected_prod != "Tümü": df_supp = df_supp[df_supp['Urun_Adi'] == selected_prod]
+            st.data_editor(df_supp[['Tarih', 'Urun_Adi', 'Tedarikci_Baslik', 'Web_Sitesi', 'Aciklama']], column_config={"Web_Sitesi": st.column_config.LinkColumn("Siteye Git", display_text="🌍 Ziyaret Et")}, use_container_width=True, hide_index=True)
     except Exception as e:
         st.error(f"Hata: {e}")
