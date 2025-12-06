@@ -32,7 +32,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- SESSION STATE BAŞLATMA ---
+# --- SESSION STATE BAŞLATMA (HATAYI ÇÖZEN YER) ---
 if 'page' not in st.session_state: st.session_state.page = "Viral"
 if 'analyzed_data' not in st.session_state: st.session_state.analyzed_data = None
 if 'analysis_meta' not in st.session_state: st.session_state.analysis_meta = {}
@@ -42,7 +42,7 @@ if 'discovery_results' not in st.session_state: st.session_state.discovery_resul
 if 'supplier_results' not in st.session_state: st.session_state.supplier_results = None
 if 'meta_results' not in st.session_state: st.session_state.meta_results = None
 
-# --- AYARLAR ---
+# --- AYARLAR VE ŞİFRELER ---
 CREDENTIALS_FILE = "credentials.json"
 MASTER_SHEET_NAME = "Viral_Hunter_Master"
 
@@ -100,7 +100,7 @@ def init_master_sheet():
         st.error(f"Google Sheet Hatası: '{MASTER_SHEET_NAME}' dosyası bulunamadı!")
         st.stop()
 
-# --- YENİ EKLENEN: MALİYET HESAPLAMA ---
+# --- MALİYET HESAPLAMA (MUHASEBE) ---
 def get_apify_usage_stats():
     try:
         user_info = client.user().get()
@@ -111,6 +111,7 @@ def get_apify_usage_stats():
         run_data = []
         for run in runs:
             actor_name = run.get('actId', 'Bilinmeyen')
+            # Aktör adlarını güzelleştir
             if "clockworks" in actor_name or "tiktok" in actor_name: actor_name = "TikTok Scraper"
             elif "google" in actor_name: actor_name = "Google Search"
             
@@ -118,16 +119,19 @@ def get_apify_usage_stats():
             compute_units = stats.get('computeUnits', 0)
             status = run.get('status')
             
+            # Tarih formatlama
             start_time = run.get('startedAt')
-            if start_time and isinstance(start_time, str):
-                try: start_time = datetime.strptime(start_time.split('.')[0], "%Y-%m-%dT%H:%M:%S")
-                except: pass
+            if start_time:
+                if isinstance(start_time, str):
+                    # ISO format (2025-12-06T12:00:00.000Z) parse et
+                    try: start_time = datetime.strptime(start_time.split('.')[0], "%Y-%m-%dT%H:%M:%S")
+                    except: pass
             
             run_data.append({
                 "Tarih": start_time,
                 "Modül": actor_name,
                 "Durum": status,
-                "Maliyet (CU)": round(compute_units, 5)
+                "Maliyet (CU)": round(compute_units, 4)
             })
             
         return limits, usage, pd.DataFrame(run_data)
@@ -163,7 +167,6 @@ def fetch_video_info(video_url):
     return (items[0].get('text', ''), items[0]) if items else (None, None)
 
 def search_competitors(query, limit=15):
-    # Standart (eski) arama fonksiyonu
     run_input = {"searchQueries": [query], "resultsPerPage": limit}
     run = client.actor("clockworks/tiktok-scraper").call(run_input=run_input)
     if run.get("defaultDatasetId"):
@@ -180,23 +183,15 @@ def run_google_scraper(query, limit=20):
         "mobileResults": False,
         "csvFriendlyOutput": False
     }
-    # Esnek Google Scraper (Organic + Paid)
-    try:
-        run = client.actor("apify/google-search-scraper").call(run_input=run_input)
-        if run.get("defaultDatasetId"):
-            items = client.dataset(run["defaultDatasetId"]).list_items().items
-            all_results = []
-            for item in items:
-                if 'organicResults' in item and isinstance(item['organicResults'], list):
-                    all_results.extend(item['organicResults'])
-                elif 'paidResults' in item and isinstance(item['paidResults'], list):
-                    all_results.extend(item['paidResults'])
-                elif 'title' in item and 'url' in item: # Direkt sonuç
-                    all_results.append(item)
-            return pd.DataFrame(all_results)
-        return pd.DataFrame()
-    except:
-        return pd.DataFrame()
+    run = client.actor("apify/google-search-scraper").call(run_input=run_input)
+    if run.get("defaultDatasetId"):
+        items = client.dataset(run["defaultDatasetId"]).list_items().items
+        all_results = []
+        for item in items:
+            if 'organicResults' in item:
+                all_results.extend(item['organicResults'])
+        return pd.DataFrame(all_results)
+    return pd.DataFrame()
 
 def filter_suppliers_strict(df, search_term):
     if df.empty: return df
@@ -374,7 +369,6 @@ if st.session_state.page == "Viral":
                     today = datetime.now()
                     days_num = 7 if day_filter == "Son 7 Gün" else 30
                     if 'createTimeISO' in df.columns: df = df[df['createTimeISO'] >= (today - timedelta(days=days_num))]
-                    # FİLTRE: ESKİ HALİNE DÖNDÜRÜLDÜ (5000)
                     df = df[df['playCount'] > 5000]
                     st.session_state.discovery_results = df.sort_values(by='Viral_Skor', ascending=False).head(20)
                 else: st.warning("Bulunamadı.")
@@ -462,11 +456,13 @@ elif st.session_state.page == "Takip":
                     if not rakipler.empty:
                         rakipler['Viral_Skor'] = pd.to_numeric(rakipler['Viral_Skor'], errors='coerce').fillna(0)
                         rakipler['Etkilesim_Orani'] = pd.to_numeric(rakipler['Etkilesim_Orani'], errors='coerce').fillna(0)
+                        
                         live_viral = rakipler['Viral_Skor'].mean()
                         live_eng = rakipler['Etkilesim_Orani'].mean()
                         total_views = rakipler['playCount'].sum()
                         winner_count = len(rakipler[rakipler['Karar_Puani'] >= 60]) if 'Karar_Puani' in rakipler.columns else 0
 
+                        # Karar Matrisi
                         try: supp_cnt = len(pd.DataFrame(sh.worksheet("Suppliers").get_all_records()).query(f'Urun_Adi == "{prod}"'))
                         except: supp_cnt = 0
                         try: meta_cnt = len(pd.DataFrame(sh.worksheet("Meta_Results").get_all_records()).query(f'Urun_Adi == "{prod}"'))
@@ -509,6 +505,7 @@ elif st.session_state.page == "Takip":
                             for q in qs:
                                 df_part = run_google_scraper(q, limit=20)
                                 if not df_part.empty: all_raw = pd.concat([all_raw, df_part], ignore_index=True)
+                            
                             if not all_raw.empty:
                                 all_raw = all_raw.drop_duplicates(subset=['url'])
                                 final_df = filter_suppliers_strict(all_raw, p["Arama_Sorgusu"])
