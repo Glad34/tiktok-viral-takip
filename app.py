@@ -124,31 +124,12 @@ def fetch_video_info(video_url):
     return (items[0].get('text', ''), items[0]) if items else (None, None)
 
 def search_competitors(query, limit=15):
-    run_input = {
-        "searchQueries": [query],
-        "resultsPerPage": limit,
-        "searchSection": "/video/top", # Sadece en popüler videoları getir (Daha stabil)
-        "shouldDownloadCovers": True,  # Kapak resimlerini indir
-        "proxyConfiguration": { "useApifyProxy": True } # Proxy zorla (Banlanmayı önler)
-    }
-    
-    try:
-        # Hata yakalama bloğu (Try-Except)
-        # memory_mbytes=1024 ile sunucuya daha fazla güç veriyoruz, donmayı engeller
-        run = client.actor("clockworks/tiktok-scraper").call(run_input=run_input, memory_mbytes=1024, timeout_secs=120)
-        
-        if run.get("defaultDatasetId"):
-            items = client.dataset(run["defaultDatasetId"]).list_items().items
-            return pd.DataFrame(items)
-        return pd.DataFrame()
-        
-    except Exception as e:
-        # Hata olursa uygulamayı çökertme, ekrana yazdır
-        st.warning(f"Arama sırasında bir Apify hatası oluştu: {e}")
-        # Eğer kredi bittiyse kullanıcıya söyle
-        if "402" in str(e):
-            st.error("⚠️ Apify Krediniz (Compute Unit) bitmiş olabilir. Lütfen 'Muhasebe' sekmesini kontrol edin.")
-        return pd.DataFrame()
+    run_input = {"searchQueries": [query], "resultsPerPage": limit}
+    run = client.actor("clockworks/tiktok-scraper").call(run_input=run_input)
+    if run.get("defaultDatasetId"):
+        items = client.dataset(run["defaultDatasetId"]).list_items().items
+        return pd.DataFrame(items)
+    return pd.DataFrame()
 
 def run_google_scraper(query, limit=20):
     run_input = {
