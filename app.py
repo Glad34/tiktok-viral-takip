@@ -48,14 +48,14 @@ def init_master_sheet():
     gc = get_gspread_client()
     try:
         sh = gc.open(MASTER_SHEET_NAME)
-        # 1. List Sekmesi (Takip Edilenler İçin)
+        # 1. List Sekmesi
         try:
             sh.worksheet("List")
         except:
             ws = sh.add_worksheet(title="List", rows="100", cols="10")
             ws.append_row(["ID", "Urun_Adi", "Rakipler_Sekme_Adi", "Performans_Sekme_Adi", "Son_Analiz_Tarihi", "Sonraki_Analiz_Tarihi", "Son_Viral_Skor", "Durum", "URL", "Arama_Sorgusu"])
         
-        # 2. Bookmarks Sekmesi (Hızlı Kaydedilenler İçin) - YENİ
+        # 2. Bookmarks Sekmesi
         try:
             sh.worksheet("Bookmarks")
         except:
@@ -162,6 +162,11 @@ def quick_save_bookmark(desc, views, viral_score, engagement, url, image_url):
     try:
         sh = init_master_sheet()
         ws = sh.worksheet("Bookmarks")
+        # Gerekli dönüşümleri yap
+        viral_score = float(viral_score) if viral_score else 0.0
+        engagement = float(engagement) if engagement else 0.0
+        views = int(views) if views else 0
+        
         ws.append_row([
             str(datetime.now().date()),
             desc,
@@ -232,13 +237,29 @@ st.markdown("""<style>.stButton>button { width: 100%; border-radius: 5px; } .stD
 # State Başlatma
 if 'analyzed_data' not in st.session_state: st.session_state.analyzed_data = None
 if 'analysis_meta' not in st.session_state: st.session_state.analysis_meta = {}
+if 'transfer_url' not in st.session_state: st.session_state.transfer_url = ""
+if 'auto_start' not in st.session_state: st.session_state.auto_start = False
+# YENİ EKLENDİ: Arama sonuçlarını hafızada tutmak için
+if 'discovery_results' not in st.session_state: st.session_state.discovery_results = None
 
-# Sidebar Menü
+# Sidebar Navigasyon
 st.sidebar.title("Tiktok Viral Takip 🤖")
-menu = st.sidebar.radio("Modüller", ["🔭 Viral Ürün Bulucu", "🚀 Ürün Analizi", "📈 Takip Edilenler", "📌 Kaydedilenler"])
+menu_options = ["🔭 Viral Ürün Bulucu", "🚀 Ürün Analizi", "📈 Takip Edilenler", "📌 Kaydedilenler"]
+
+# Session State'den sayfa kontrolü (Otopilot için)
+if 'page' not in st.session_state: st.session_state.page = "🔭 Viral Ürün Bulucu"
+
+# Sidebar seçimi
+current_index = menu_options.index(st.session_state.page) if st.session_state.page in menu_options else 0
+selection = st.sidebar.radio("Modüller", menu_options, index=current_index)
+
+if selection != st.session_state.page:
+    st.session_state.page = selection
+    st.session_state.auto_start = False
+    st.rerun()
 
 # ----------------- MODÜL 1: VİRAL ÜRÜN BULUCU -----------------
-if menu == "🔭 Viral Ürün Bulucu":
+if st.session_state.page == "🔭 Viral Ürün Bulucu":
     st.title("🔭 Türkiye Viral Ürün Keşfi")
     
     search_type = st.radio("Arama Yöntemi:", ["Kategoriden Seç", "Manuel Hashtag/Kelime Ara"], horizontal=True)
@@ -269,79 +290,107 @@ if menu == "🔭 Viral Ürün Bulucu":
                     df_discovery = df_discovery[df_discovery['playCount'] > 5000] 
                     df_discovery = df_discovery.sort_values(by='Viral_Skor', ascending=False).head(20)
                     
-                    st.success(f"✅ {len(df_discovery)} adet ürün bulundu!")
+                    # SONUÇLARI HAFIZAYA AT (KAYDET BUTONU İÇİN KRİTİK ADIM)
+                    st.session_state.discovery_results = df_discovery
                     
-                    for index, row in df_discovery.iterrows():
-                        with st.container():
-                            c1, c2, c3, c4 = st.columns([1, 3, 2, 2])
-                            with c1:
-                                if row.get('videoMeta') and isinstance(row['videoMeta'], dict):
-                                    cover = row['videoMeta'].get('coverUrl', '')
-                                    if cover: st.image(cover, use_column_width=True)
-                            with c2:
-                                st.write(f"**{row['text'][:90]}...**")
-                                st.caption(f"Tarih: {row['createTimeISO'].date()}")
-                                # URL Kopyalama için Code Bloğu
-                                st.code(row['webVideoUrl'], language="text")
-                                st.markdown(f"[🎥 Videoya Git ↗️]({row['webVideoUrl']})", unsafe_allow_html=True)
-                            with c3:
-                                st.metric("İzlenme", f"{int(row['playCount']):,}")
-                                st.metric("Viral Skor", f"%{row['Viral_Skor']:.1f}") 
-                                st.metric("Etkileşim", f"%{row['Etkilesim_Orani']:.2f}")
-                            with c4:
-                                # HIZLI KAYDET BUTONU
-                                if st.button("📌 Kaydet", key=f"save_{index}"):
-                                    cover_url = row['videoMeta'].get('coverUrl', '') if row.get('videoMeta') else ""
-                                    if quick_save_bookmark(row['text'][:100], int(row['playCount']), row['Viral_Skor'], row['Etkilesim_Orani'], row['webVideoUrl'], cover_url):
-                                        st.success("Kaydedilenlere eklendi!")
-                            st.markdown("---")
                 else:
                     st.warning("Veri bulunamadı.")
+                    st.session_state.discovery_results = None
+
+    # SONUÇLARI HAFIZADAN GÖSTER (Button Click Rerun Yapsa Bile Burası Çalışır)
+    if st.session_state.discovery_results is not None:
+        df_display = st.session_state.discovery_results
+        st.success(f"✅ {len(df_display)} adet ürün listeleniyor.")
+        
+        for index, row in df_display.iterrows():
+            with st.container():
+                c1, c2, c3, c4 = st.columns([1, 3, 2, 2])
+                with c1:
+                    if row.get('videoMeta') and isinstance(row['videoMeta'], dict):
+                        cover = row['videoMeta'].get('coverUrl', '')
+                        if cover: st.image(cover, use_column_width=True)
+                with c2:
+                    st.write(f"**{row['text'][:90]}...**")
+                    st.caption(f"Tarih: {row['createTimeISO'].date()}")
+                    st.code(row['webVideoUrl'], language="text")
+                    st.markdown(f"[🎥 Videoya Git ↗️]({row['webVideoUrl']})", unsafe_allow_html=True)
+                with c3:
+                    st.metric("İzlenme", f"{int(row['playCount']):,}")
+                    st.metric("Viral Skor", f"%{row['Viral_Skor']:.1f}") 
+                    st.metric("Etkileşim", f"%{row['Etkilesim_Orani']:.2f}")
+                with c4:
+                    # 1. ANALİZ BUTONU
+                    if st.button("🚀 Bunu Analiz Et", key=f"anl_{index}"):
+                        st.session_state.transfer_url = row['webVideoUrl']
+                        st.session_state.auto_start = True 
+                        st.session_state.page = "🚀 Ürün Analizi"
+                        st.rerun()
+                    
+                    # 2. HIZLI KAYDET BUTONU
+                    if st.button("📌 Hızlı Kaydet", key=f"sav_{index}"):
+                        cover_url = row['videoMeta'].get('coverUrl', '') if row.get('videoMeta') else ""
+                        if quick_save_bookmark(row['text'][:100], int(row['playCount']), row['Viral_Skor'], row['Etkilesim_Orani'], row['webVideoUrl'], cover_url):
+                            st.toast("✅ Kaydedilenlere eklendi!", icon="📌")
+                st.markdown("---")
 
 
 # ----------------- MODÜL 2: ÜRÜN ANALİZİ -----------------
-elif menu == "🚀 Ürün Analizi":
-    st.title("🚀 Detaylı Ürün Analizi ve Takip")
+elif st.session_state.page == "🚀 Ürün Analizi":
+    st.title("🚀 Detaylı Ürün Analizi")
+    
+    url_val = st.session_state.transfer_url if st.session_state.transfer_url else ""
     
     col_input1, col_input2 = st.columns([2, 1])
     with col_input1:
-        url = st.text_input("TikTok Video URL (Yapıştırın):", placeholder="https://...")
+        url = st.text_input("TikTok Video URL:", value=url_val, placeholder="https://...")
     with col_input2:
         manual_prod_name = st.text_input("Ürün Adı (Opsiyonel):", help="Manuel giriş.")
 
-    if st.button("Analiz Et"):
-        if not url:
-            st.error("Lütfen bir URL girin!")
+    def run_analysis_flow(target_url, manual_query_input):
+        smart_query = ""
+        if manual_query_input:
+            smart_query = manual_query_input
+            st.info(f"✍️ Manuel Arama: **{smart_query}**")
         else:
-            smart_query = ""
-            if manual_prod_name:
-                smart_query = manual_prod_name
-                st.info(f"✍️ Manuel Arama: **{smart_query}**")
-            else:
-                with st.spinner("Video inceleniyor..."):
-                    raw_text, _ = fetch_video_info(url)
-                    if raw_text:
-                        smart_query = clean_text_for_query(raw_text)
-                        if smart_query: st.info(f"🔎 Otomatik Sorgu: **{smart_query}**")
-                        else: st.warning("⚠️ Ürün adı bulunamadı. Lütfen sağ kutuya manuel girin.")
+            with st.spinner("Video ismi algılanıyor..."):
+                raw_text, _ = fetch_video_info(target_url)
+                if raw_text:
+                    smart_query = clean_text_for_query(raw_text)
+                    if smart_query: st.info(f"🔎 Otomatik Sorgu: **{smart_query}**")
                     else:
-                        st.error("Video bilgisi çekilemedi.")
+                        st.warning("⚠️ Ürün adı bulunamadı. Lütfen sağ kutuya manuel girin.")
+                        st.session_state.auto_start = False
+                        return 
+                else:
+                    st.error("Video bilgisi çekilemedi.")
+                    st.session_state.auto_start = False
+                    return
 
-            if smart_query:
-                with st.spinner(f"'{smart_query}' için rakipler taranıyor..."):
-                    related_df = search_competitors(smart_query, limit=15)
-                    if not related_df.empty:
-                        analyzed = calculate_metrics(related_df)
-                        ai_text, next_date = generate_smart_analysis(analyzed)
-                        st.session_state.analyzed_data = analyzed
-                        st.session_state.analysis_meta = {
-                            "query": smart_query, "url": url, "ai_text": ai_text, "next_date": next_date, 
-                            "avg_viral": analyzed['Viral_Skor'].mean(), "avg_score": analyzed['Karar_Puani'].mean(),
-                            "status": "WINNER 🏆" if analyzed['Karar_Puani'].mean() >= 60 else "NORMAL"
-                        }
-                    else:
-                        st.error("Rakipler bulunamadı.")
-                        st.session_state.analyzed_data = None
+        if smart_query:
+            with st.spinner(f"'{smart_query}' için rakipler taranıyor..."):
+                related_df = search_competitors(smart_query, limit=15)
+                if not related_df.empty:
+                    analyzed = calculate_metrics(related_df)
+                    ai_text, next_date = generate_smart_analysis(analyzed)
+                    st.session_state.analyzed_data = analyzed
+                    st.session_state.analysis_meta = {
+                        "query": smart_query, "url": target_url, "ai_text": ai_text, "next_date": next_date, 
+                        "avg_viral": analyzed['Viral_Skor'].mean(), "avg_score": analyzed['Karar_Puani'].mean(),
+                        "status": "WINNER 🏆" if analyzed['Karar_Puani'].mean() >= 60 else "NORMAL"
+                    }
+                    st.session_state.transfer_url = ""
+                    st.session_state.auto_start = False
+                else:
+                    st.error("Rakipler bulunamadı.")
+                    st.session_state.analyzed_data = None
+                    st.session_state.auto_start = False
+
+    if st.button("Analiz Et"):
+        if url: run_analysis_flow(url, manual_prod_name)
+        else: st.error("Lütfen URL girin!")
+
+    if st.session_state.auto_start and url:
+        run_analysis_flow(url, manual_prod_name)
 
     if st.session_state.analyzed_data is not None:
         analyzed = st.session_state.analyzed_data
@@ -369,13 +418,13 @@ elif menu == "🚀 Ürün Analizi":
 
 
 # ----------------- MODÜL 3: TAKİP EDİLENLER -----------------
-elif menu == "📈 Takip Edilenler":
-    st.title("📈 Takip Edilen Ürünler (Derin Analiz)")
+elif st.session_state.page == "📈 Takip Edilenler":
+    st.title("📈 Takip Edilen Ürünler")
     sh = init_master_sheet()
     try:
         data = sh.worksheet("List").get_all_records()
         if not data:
-            st.warning("Henüz takip edilen ürün yok.")
+            st.warning("Henüz ürün yok.")
         else:
             master_df = pd.DataFrame(data)
             product_list = master_df['Urun_Adi'].tolist()
@@ -419,42 +468,34 @@ elif menu == "📈 Takip Edilenler":
     except Exception as e:
         st.error(f"Veri Hatası: {e}")
 
-# ----------------- MODÜL 4: KAYDEDİLENLER (YENİ) -----------------
-elif menu == "📌 Kaydedilenler":
-    st.title("📌 Hızlı Kaydedilenler (İnceleme Listesi)")
+# ----------------- MODÜL 4: KAYDEDİLENLER (BOOKMARKS) -----------------
+elif st.session_state.page == "📌 Kaydedilenler":
+    st.title("📌 Hızlı Kaydedilenler")
     sh = init_master_sheet()
     try:
         ws_bm = sh.worksheet("Bookmarks")
         data = ws_bm.get_all_records()
         
         if not data:
-            st.info("Listeniz boş. 'Viral Ürün Bulucu'dan ürün ekleyebilirsiniz.")
+            st.info("Listeniz boş.")
         else:
             df_bm = pd.DataFrame(data)
-            # Listeyi tersten göster (En yeni en üstte)
-            df_bm = df_bm.iloc[::-1]
+            df_bm = df_bm.iloc[::-1] # En yeni üstte
             
             for index, row in df_bm.iterrows():
                 with st.container():
                     c1, c2, c3 = st.columns([1, 3, 2])
                     with c1:
-                        if row.get('Resim_URL'):
-                            st.image(row['Resim_URL'], use_column_width=True)
-                        else:
-                            st.write("📷")
-                    
+                        if row.get('Resim_URL'): st.image(row['Resim_URL'], use_column_width=True)
                     with c2:
                         st.write(f"**{row['Aciklama']}**")
-                        st.caption(f"Kayıt Tarihi: {row['Tarih']}")
+                        st.caption(f"Tarih: {row['Tarih']}")
                         st.markdown(f"[🎥 Videoya Git]({row['Video_URL']})", unsafe_allow_html=True)
                         st.code(row['Video_URL'], language="text")
-                        
                     with c3:
                         st.metric("İzlenme", f"{row['Izlenme']:,}")
                         st.metric("Viral Skor", f"%{row['Viral_Skor']}")
                         st.metric("Etkileşim", f"%{row['Etkilesim']}")
-                    
                     st.markdown("---")
-            
     except Exception as e:
         st.error(f"Hata: {e}")
