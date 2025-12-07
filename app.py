@@ -397,14 +397,17 @@ if st.session_state.page == "Viral":
                         if quick_save_bookmark(r['text'][:100], int(r['playCount']), r['Viral_Skor'], r['Etkilesim_Orani'], r['webVideoUrl'], r['videoMeta'].get('coverUrl','')): st.toast("Kaydedildi")
             st.markdown("---")
 
-# ----------------- 2. AVCI -----------------
+# ----------------- 2. AVCI (ÜRÜN ANALİZİ - DÜZELTİLDİ) -----------------
 elif st.session_state.page == "Analiz":
     st.title("🚀 Ürün Analizi (Avcı)")
+    
+    # URL ve İsim Girişi
     val = st.session_state.transfer_url
     c1, c2 = st.columns([2,1])
     with c1: url = st.text_input("URL:", value=val)
     with c2: name = st.text_input("Manuel İsim:")
     
+    # Analiz Fonksiyonu
     def run_anl(u, n):
         q = n
         if not q:
@@ -417,18 +420,29 @@ elif st.session_state.page == "Analiz":
                 if not df.empty:
                     df = calculate_metrics(df)
                     ai, nxt = generate_smart_analysis(df)
+                    
                     st.session_state.analyzed_data = df
-                    st.session_state.analysis_meta = {"q": q, "u": u, "ai": ai, "d": nxt, "sc": df['Karar_Puani'].mean(), "v": df['Viral_Skor'].mean(), "st": "WINNER" if df['Karar_Puani'].mean()>=60 else "NORMAL"}
-                    st.session_state.transfer_url = ""; st.session_state.auto_start = False
+                    # HATA BURADAYDI: Anahtarları (Keys) düzelttik
+                    st.session_state.analysis_meta = {
+                        "query": q,      # 'q' yerine 'query'
+                        "url": u,        # 'u' yerine 'url'
+                        "ai": ai, 
+                        "date": nxt,     # 'd' yerine 'date' (Hata buydu)
+                        "score": df['Karar_Puani'].mean(), # 'sc' yerine 'score'
+                        "viral": df['Viral_Skor'].mean(),  # 'v' yerine 'viral'
+                        "status": "WINNER 🏆" if df['Karar_Puani'].mean()>=60 else "NORMAL"
+                    }
+                    st.session_state.transfer_url = ""
+                    st.session_state.auto_start = False
                 else: st.error("Rakip bulunamadı.")
     
+    # Butonlar
     if st.button("Analiz Et") and url: run_anl(url, name)
     if st.session_state.auto_start and url: run_anl(url, name)
     
-    # ... (Modül 2'nin üst kısımları aynı kalsın) ...
-
-    # SONUÇ GÖSTERİMİ VE DÜZENLEME (BURASI DEĞİŞTİ)
+    # SONUÇ GÖSTERİMİ VE SİLME İŞLEMİ
     if st.session_state.analyzed_data is not None:
+        
         # Eğer listede veri kalmadıysa uyar
         if st.session_state.analyzed_data.empty:
             st.warning("Listede hiç video kalmadı. Lütfen yeniden analiz yapın.")
@@ -437,67 +451,69 @@ elif st.session_state.page == "Analiz":
 
         df = st.session_state.analyzed_data
         
-        # --- METRİKLERİ ANLIK HESAPLA (Silince güncellensin diye) ---
+        # --- METRİKLERİ ANLIK GÜNCELLE ---
         current_score = df['Karar_Puani'].mean()
         current_viral = df['Viral_Skor'].mean()
         current_status = "WINNER 🏆" if current_score >= 60 else "NORMAL"
         
-        # Meta verilerini güncelle (Kaydederken güncel veri gitsin)
+        # Meta verilerini güncelle
         st.session_state.analysis_meta.update({
             "score": current_score,
             "viral": current_viral,
             "status": current_status
         })
         
-        meta = st.session_state.analysis_meta
+        meta = st.session_state.analysis_meta # Güncel metayı al
 
-        # Üst Bilgi Kartları
         c1, c2 = st.columns([1, 2])
         with c1:
-            st.metric("Ort. Puan", f"{current_score:.1f}")
-            st.metric("Ort. Viral Skor", f"%{current_viral:.1f}")
+            st.metric("Puan", f"{current_score:.1f}")
+            st.metric("Viral", f"%{current_viral:.1f}")
             
-            # Analiz Notunu (AI Text) güncellemek zor olduğu için eskisi kalır veya basitçe yenilenir
-            st.info(f"📅 Kontrol: {meta['date']}")
+            # Artık 'date' anahtarı var, hata vermez
+            st.info(f"Kontrol: {meta['date']}")
+            st.markdown(meta['ai'])
             
             if st.button("💾 TEMİZLENMİŞ LİSTEYİ KAYDET"):
-                # Güncel (Silinmiş) haliyle kaydet
-                if save_to_tracking_sheet(meta['q'], meta['u'], meta['q'], df, meta['ai'], current_viral, current_status, meta['date']):
+                # Kaydederken 'query', 'url' gibi düzeltilmiş anahtarları kullanıyoruz
+                if save_to_tracking_sheet(
+                    meta['query'], 
+                    meta['url'], 
+                    meta['query'], 
+                    df, 
+                    meta['ai'], 
+                    current_viral, 
+                    current_status, 
+                    meta['date']
+                ):
                     st.success("Kaydedildi!")
                     time.sleep(1)
                     st.session_state.analyzed_data = None
                     st.rerun()
         
         with c2:
-            st.subheader(f"📋 Analiz Sonuçları ({len(df)} Video)")
-            st.caption("Alakasız videoları 'Sil' butonuyla listeden çıkarın. Puanlar otomatik güncellenir.")
-
-            # --- İNTERAKTİF LİSTE ---
-            # Dataframe'i satır satır döngüye alıyoruz
+            st.subheader(f"📋 Analiz Sonuçları ({len(df)})")
+            
+            # İNTERAKTİF SİLME LİSTESİ
             for index, row in df.iterrows():
                 with st.container():
-                    # 3 Sütunlu yapı: Bilgi | Skorlar | Sil Butonu
                     col_info, col_stat, col_del = st.columns([3, 1, 1])
                     
                     with col_info:
-                        st.write(f"**{row['text'][:80]}...**")
-                        st.markdown(f"[🎥 Videoya Git]({row['webVideoUrl']})", unsafe_allow_html=True)
+                        st.write(f"**{row['text'][:60]}...**")
+                        st.markdown(f"[🎥 Git]({row['webVideoUrl']})")
                     
                     with col_stat:
-                        st.write(f"👁️ {int(row['playCount']):,}")
-                        # Renkli Viral Skor
+                        st.caption(f"👁️ {int(row['playCount']):,}")
                         score_color = "green" if row['Viral_Skor'] > 10 else "red"
                         st.markdown(f":{score_color}[Viral: %{row['Viral_Skor']:.1f}]")
                     
                     with col_del:
-                        # SİLME BUTONU
-                        if st.button("🗑️ Kaldır", key=f"del_{index}"):
-                            # Seçilen satırı hafızadaki tablodan sil
+                        if st.button("🗑️ Sil", key=f"del_{index}"):
                             st.session_state.analyzed_data = df.drop(index)
-                            st.rerun() # Sayfayı yenile (Listeyi güncelle)
+                            st.rerun()
                 
-                st.markdown("---") # Ayırıcı çizgi
-
+                st.markdown("---")
 # ----------------- 3. MERKEZ -----------------
 elif st.session_state.page == "Takip":
     st.title("📈 Takip Edilenler (Merkez)")
