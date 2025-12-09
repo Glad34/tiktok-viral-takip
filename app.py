@@ -32,7 +32,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- SESSION STATE BAŞLATMA ---
+# --- SESSION STATE ---
 if 'page' not in st.session_state: st.session_state.page = "Viral"
 if 'analyzed_data' not in st.session_state: st.session_state.analyzed_data = None
 if 'analysis_meta' not in st.session_state: st.session_state.analysis_meta = {}
@@ -162,15 +162,17 @@ def fetch_video_info(video_url):
     items = client.dataset(run["defaultDatasetId"]).list_items().items
     return (items[0].get('text', ''), items[0]) if items else (None, None)
 
+# --- DÜZELTİLMİŞ ARAMA FONKSİYONU ---
 def search_competitors(query, limit=15):
     run_input = {
         "searchQueries": [query],
         "resultsPerPage": limit,
-        "searchSection": "/video/top", 
+        "searchSection": "/video", # BURASI DÜZELTİLDİ (/video/top yerine /video)
         "shouldDownloadCovers": True,  
         "proxyConfiguration": { "useApifyProxy": True } 
     }
     try:
+        # Timeout ve Memory ayarı
         run = client.actor("clockworks/tiktok-scraper").call(run_input=run_input, memory_mbytes=1024, timeout_secs=120)
         if run.get("defaultDatasetId"):
             items = client.dataset(run["defaultDatasetId"]).list_items().items
@@ -180,6 +182,7 @@ def search_competitors(query, limit=15):
         st.warning(f"Apify Arama Hatası: {e}")
         return pd.DataFrame()
 
+# GÜVENLİ GOOGLE ARAMA
 def run_google_scraper(query, limit=20):
     run_input = {
         "queries": query, 
@@ -343,6 +346,7 @@ MENU_MAP = {
     "💰 Bakiye & Maliyet (Muhasebe)": "Cost"
 }
 
+# Session State'den mevcut sayfanın index'ini bul
 menu_keys = list(MENU_MAP.keys())
 try:
     current_label = [k for k, v in MENU_MAP.items() if v == st.session_state.page][0]
@@ -350,9 +354,11 @@ try:
 except:
     current_index = 0
 
+# Radio Buton Menüsü
 selected_label = st.sidebar.radio("Modüller:", menu_keys, index=current_index)
 selection = MENU_MAP[selected_label]
 
+# Seçim değişirse sayfayı güncelle ve yeniden yükle
 if selection != st.session_state.page:
     st.session_state.page = selection
     st.session_state.auto_start = False
@@ -379,6 +385,7 @@ if st.session_state.page == "Viral":
                     today = datetime.now()
                     days_num = 7 if day_filter == "Son 7 Gün" else 30
                     if 'createTimeISO' in df.columns: df = df[df['createTimeISO'] >= (today - timedelta(days=days_num))]
+                    # FİLTRE: 1000 İzlenme
                     df = df[df['playCount'] > 1000]
                     st.session_state.discovery_results = df.sort_values(by='Viral_Skor', ascending=False).head(20)
                 else: st.warning("Bulunamadı.")
@@ -428,7 +435,7 @@ elif st.session_state.page == "Analiz":
                     df = calculate_metrics(df)
                     ai, nxt = generate_smart_analysis(df)
                     st.session_state.analyzed_data = df
-                    st.session_state.analysis_meta = {"query": q, "url": u, "ai": ai, "date": nxt, "score": df['Karar_Puani'].mean(), "viral": df['Viral_Skor'].mean(), "status": "WINNER 🏆" if df['Karar_Puani'].mean()>=60 else "NORMAL"}
+                    st.session_state.analysis_meta = {"q": q, "u": u, "ai": ai, "d": nxt, "sc": df['Karar_Puani'].mean(), "v": df['Viral_Skor'].mean(), "st": "WINNER" if df['Karar_Puani'].mean()>=60 else "NORMAL"}
                     st.session_state.transfer_url = ""; st.session_state.auto_start = False
                 else: st.error("Rakip bulunamadı.")
     
@@ -448,10 +455,10 @@ elif st.session_state.page == "Analiz":
         c1, c2 = st.columns([1,2])
         with c1:
             st.metric("Puan", f"{curr_s:.1f}"); st.metric("Viral", f"%{curr_v:.1f}")
-            st.info(f"Kontrol: {m['date']}")
+            st.info(f"Kontrol: {m['d']}") # 'd' anahtarı kullanıldı (hata buydu, 'd' uyumlu hale geldi)
             st.markdown(m['ai'])
             if st.button("💾 TEMİZLENMİŞ KAYDET"):
-                if save_to_tracking_sheet(m['query'], m['url'], m['query'], df, m['ai'], curr_v, m['status'], m['date']):
+                if save_to_tracking_sheet(m['q'], m['u'], m['q'], df, m['ai'], curr_v, m['st'], m['d']):
                     st.success("Kaydedildi!"); time.sleep(1); st.session_state.analyzed_data = None; st.rerun()
         with c2:
             st.subheader(f"📋 Analiz ({len(df)})")
@@ -465,7 +472,7 @@ elif st.session_state.page == "Analiz":
                             st.session_state.analyzed_data = df.drop(i); st.rerun()
                 st.markdown("---")
 
-# ----------------- 3. MERKEZ (GÜÇLENDİRİLMİŞ META) -----------------
+# ----------------- 3. MERKEZ -----------------
 elif st.session_state.page == "Takip":
     st.title("📈 Takip Edilenler (Merkez)")
     sh = init_master_sheet()
@@ -479,18 +486,24 @@ elif st.session_state.page == "Takip":
                 try:
                     perf = pd.DataFrame(sh.worksheet(p['Performans_Sekme_Adi']).get_all_records())
                     rakipler = pd.DataFrame(sh.worksheet(p['Rakipler_Sekme_Adi']).get_all_records())
+                    
                     st.info(f"Durum: {p['Durum']} | Sonraki Kontrol: {p['Sonraki_Analiz_Tarihi']}")
+                    
                     if not rakipler.empty:
                         rakipler['Viral_Skor'] = pd.to_numeric(rakipler['Viral_Skor'], errors='coerce').fillna(0)
                         rakipler['Etkilesim_Orani'] = pd.to_numeric(rakipler['Etkilesim_Orani'], errors='coerce').fillna(0)
+                        
                         live_viral = rakipler['Viral_Skor'].mean()
                         live_eng = rakipler['Etkilesim_Orani'].mean()
                         total_views = rakipler['playCount'].sum()
                         winner_count = len(rakipler[rakipler['Karar_Puani'] >= 60]) if 'Karar_Puani' in rakipler.columns else 0
+
+                        # Karar Matrisi
                         try: supp_cnt = len(pd.DataFrame(sh.worksheet("Suppliers").get_all_records()).query(f'Urun_Adi == "{prod}"'))
                         except: supp_cnt = 0
                         try: meta_cnt = len(pd.DataFrame(sh.worksheet("Meta_Results").get_all_records()).query(f'Urun_Adi == "{prod}"'))
                         except: meta_cnt = 0
+                        
                         comm_score = calculate_commercial_score(live_viral, supp_cnt, meta_cnt, live_eng)
                         
                         st.markdown("### 🧠 KARAR MOTORU")
@@ -500,7 +513,9 @@ elif st.session_state.page == "Takip":
                             if comm_score>=75: st.success("ALIM EMRİ ✅")
                             elif comm_score>=50: st.warning("RİSKLİ ⚠️")
                             else: st.error("BEKLE ⛔")
-                        with sc2: st.caption(f"Tedarikçi: {supp_cnt} | Meta İzi: {meta_cnt} | Kalite: %{live_eng:.1f}")
+                        with sc2:
+                            st.caption(f"Tedarikçi: {supp_cnt} | Meta İzi: {meta_cnt} | Kalite: %{live_eng:.1f}")
+
                         st.markdown("---")
                         c1, c2, c3, c4 = st.columns(4)
                         c1.metric("Ort. Viral", f"%{live_viral:.2f}")
@@ -511,26 +526,14 @@ elif st.session_state.page == "Takip":
 
                     st.markdown("---"); st.subheader("🕵️ İstihbarat")
                     cm, cs = st.columns(2)
-                    # --- META TARAMASI (GÜÇLENDİRİLMİŞ) ---
                     with cm:
-                        if st.button("📢 Meta Tara (Geniş)", use_container_width=True):
-                            # 1. Geniş Arama
-                            q1 = f'{p["Arama_Sorgusu"]} site:facebook.com OR site:instagram.com "sponsorlu" OR "shop" OR "fiyat"'
-                            # 2. Reklam Kütüphanesi
-                            q2 = f'{p["Arama_Sorgusu"]} "reklam kütüphanesi" OR "ad library" site:facebook.com'
-                            
-                            all_meta = pd.DataFrame()
-                            with st.status("Meta taranıyor..."):
-                                df1 = run_google_scraper(q1, 20)
-                                df2 = run_google_scraper(q2, 20)
-                                all_meta = pd.concat([df1, df2], ignore_index=True)
-                            
-                            if not all_meta.empty:
-                                all_meta = all_meta.drop_duplicates(subset=['url'])
-                                rows = [[str(p['ID']), str(datetime.now().date()), prod, r.get('title',''), r.get('url',''), r.get('description',''), "Meta"] for _, r in all_meta.iterrows()]
-                                save_extra_results("Meta_Results", rows); st.success(f"{len(rows)} sonuç bulundu!"); time.sleep(1); st.rerun()
+                        if st.button("📢 Meta Tara", use_container_width=True):
+                            mq = f'"{p["Arama_Sorgusu"]}" site:facebook.com OR site:instagram.com "fiyat" OR "sipariş"'
+                            dfm = run_google_scraper(mq, 10)
+                            if not dfm.empty:
+                                rows = [[str(p['ID']), str(datetime.now().date()), prod, r.get('title',''), r.get('url',''), r.get('description',''), "Meta"] for _, r in dfm.iterrows()]
+                                save_extra_results("Meta_Results", rows); st.success("Bulundu!"); time.sleep(1); st.rerun()
                             else: st.warning("Yok.")
-                    
                     with cs:
                         if st.button("🏭 Tedarikçi Tara", use_container_width=True):
                             qs = [f'"{p["Arama_Sorgusu"]}" toptan satış', f'"{p["Arama_Sorgusu"]}" imalatçı firma']
@@ -538,6 +541,7 @@ elif st.session_state.page == "Takip":
                             for q in qs:
                                 df_part = run_google_scraper(q, limit=20)
                                 if not df_part.empty: all_raw = pd.concat([all_raw, df_part], ignore_index=True)
+                            
                             if not all_raw.empty:
                                 all_raw = all_raw.drop_duplicates(subset=['url'])
                                 final_df = filter_suppliers_strict(all_raw, p["Arama_Sorgusu"])
