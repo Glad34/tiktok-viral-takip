@@ -356,6 +356,7 @@ MENU_MAP = {
     "💰 Bakiye & Maliyet (Muhasebe)": "Cost"
 }
 
+# Session State'den mevcut sayfanın index'ini bul
 menu_keys = list(MENU_MAP.keys())
 try:
     current_label = [k for k, v in MENU_MAP.items() if v == st.session_state.page][0]
@@ -363,9 +364,11 @@ try:
 except:
     current_index = 0
 
+# Radio Buton Menüsü
 selected_label = st.sidebar.radio("Modüller:", menu_keys, index=current_index)
 selection = MENU_MAP[selected_label]
 
+# Seçim değişirse sayfayı güncelle ve yeniden yükle
 if selection != st.session_state.page:
     st.session_state.page = selection
     st.session_state.auto_start = False
@@ -377,15 +380,9 @@ if st.session_state.page == "Viral":
     
     with st.expander("ℹ️ Çalışma Prensibi"):
         st.markdown("""
-        **Ne Yapar?** TikTok üzerindeki genel arama sonuçlarını tarar. Rastgele keşif yapmak içindir.
-        
-        **Nasıl Çalışır?**
-        1. **Arama:** Seçtiğiniz kategoriye uygun anahtar kelimeleri (örn: #tiktokzamanı, #aldım) TikTok'ta aratır.
-        2. **Kapsam:** Hem organik kullanıcı videolarını hem de arama sonuçlarındaki reklamları görür.
-        3. **Filtreler:**
-            *   **Dil:** Sadece Türkçe karakter veya anahtar kelime (fiyat, sipariş) içerenleri alır.
-            *   **Zaman:** Seçiminize göre (Son 7 veya 30 gün) eski videoları eler.
-            *   **Kalite:** 1000 izlenmenin altındaki 'ölü' videoları göstermez.
+        **Ne Yapar?** TikTok genel arama sonuçlarını tarar.
+        **Tüm Zamanlar Modu:** İzlenme limiti yoktur. Tüm tarihleri getirir.
+        **7 ve 30 Gün Modu:** Sadece 1000+ izlenmiş taze içerikleri getirir.
         """)
 
     search_type = st.radio("Tip:", ["Kategoriden Seç", "Manuel"], horizontal=True)
@@ -394,7 +391,9 @@ if st.session_state.page == "Viral":
         with c1: cat = st.selectbox("Kategori:", list(SEARCH_STRATEGIES_TR.keys()))
     else: 
         with c1: query_inp = st.text_input("Arama:", placeholder="örn: kapıda ödeme")
-    with c2: day_filter = st.selectbox("Zaman:", ["Son 7 Gün", "Son 30 Gün"], index=1)
+    
+    # YENİ EKLENEN FİLTRE: "Tüm Zamanlar"
+    with c2: day_filter = st.selectbox("Zaman:", ["Son 7 Gün", "Son 30 Gün", "Tüm Zamanlar"], index=1)
     
     if st.button("🔍 Ürünleri Ara"):
         q = random.choice(SEARCH_STRATEGIES_TR[cat]) if search_type == "Kategoriden Seç" else query_inp
@@ -404,12 +403,27 @@ if st.session_state.page == "Viral":
                 if not df.empty:
                     df = calculate_metrics(df)
                     df = filter_turkish_content(df) # FİLTRE
+                    
                     if not df.empty:
                         today = datetime.now()
-                        days_num = 7 if day_filter == "Son 7 Gün" else 30
-                        if 'createTimeISO' in df.columns: df = df[df['createTimeISO'] >= (today - timedelta(days=days_num))]
-                        df = df[df['playCount'] > 1000]
-                        st.session_state.discovery_results = df.sort_values(by='Viral_Skor', ascending=False).head(20)
+                        
+                        # --- FİLTRELEME MANTIĞI (GÜNCELLENDİ) ---
+                        if day_filter == "Son 7 Gün":
+                            if 'createTimeISO' in df.columns: df = df[df['createTimeISO'] >= (today - timedelta(days=7))]
+                            df = df[df['playCount'] > 1000] # Kalite Filtresi
+                        
+                        elif day_filter == "Son 30 Gün":
+                            if 'createTimeISO' in df.columns: df = df[df['createTimeISO'] >= (today - timedelta(days=30))]
+                            df = df[df['playCount'] > 1000] # Kalite Filtresi
+                        
+                        else: # "Tüm Zamanlar"
+                            # Tarih ve izlenme filtresi UYGULANMAZ
+                            pass 
+
+                        if not df.empty:
+                            st.session_state.discovery_results = df.sort_values(by='Viral_Skor', ascending=False).head(20)
+                        else:
+                            st.warning("Bu tarih aralığında kriterlere uygun içerik yok.")
                     else: st.warning(f"'{q}' için içerik bulundu ama Türkçe filtresine takıldı.")
                 else: st.warning("Bulunamadı.")
     
@@ -472,7 +486,7 @@ elif st.session_state.page == "Analiz":
                     if not df.empty:
                         ai, nxt = generate_smart_analysis(df)
                         st.session_state.analyzed_data = df
-                        st.session_state.analysis_meta = {"q": q, "u": u, "ai": ai, "date": nxt, "score": df['Karar_Puani'].mean(), "viral": df['Viral_Skor'].mean(), "status": "WINNER 🏆" if df['Karar_Puani'].mean()>=60 else "NORMAL"}
+                        st.session_state.analysis_meta = {"query": q, "url": u, "ai": ai, "date": nxt, "score": df['Karar_Puani'].mean(), "viral": df['Viral_Skor'].mean(), "status": "WINNER 🏆" if df['Karar_Puani'].mean()>=60 else "NORMAL"}
                         st.session_state.transfer_url = ""; st.session_state.auto_start = False
                     else: st.error("Rakip bulundu ama Türkçe değil.")
                 else: st.error("Rakip bulunamadı.")
@@ -496,7 +510,7 @@ elif st.session_state.page == "Analiz":
             st.info(f"Kontrol: {m['date']}") 
             st.markdown(m['ai'])
             if st.button("💾 TEMİZLENMİŞ KAYDET"):
-                if save_to_tracking_sheet(m['q'], m['u'], m['q'], df, m['ai'], curr_v, m['status'], m['date']):
+                if save_to_tracking_sheet(m['query'], m['url'], m['query'], df, m['ai'], curr_v, m['status'], m['date']):
                     st.success("Kaydedildi!"); time.sleep(1); st.session_state.analyzed_data = None; st.rerun()
         with c2:
             st.subheader(f"📋 Analiz ({len(df)})")
@@ -530,6 +544,7 @@ elif st.session_state.page == "Takip":
                     if not rakipler.empty:
                         rakipler['Viral_Skor'] = pd.to_numeric(rakipler['Viral_Skor'], errors='coerce').fillna(0)
                         rakipler['Etkilesim_Orani'] = pd.to_numeric(rakipler['Etkilesim_Orani'], errors='coerce').fillna(0)
+                        
                         live_viral = rakipler['Viral_Skor'].mean()
                         live_eng = rakipler['Etkilesim_Orani'].mean()
                         total_views = rakipler['playCount'].sum()
@@ -578,6 +593,7 @@ elif st.session_state.page == "Takip":
                             for q in qs:
                                 df_part = run_google_scraper(q, limit=20)
                                 if not df_part.empty: all_raw = pd.concat([all_raw, df_part], ignore_index=True)
+                            
                             if not all_raw.empty:
                                 all_raw = all_raw.drop_duplicates(subset=['url'])
                                 final_df = filter_suppliers_strict(all_raw, p["Arama_Sorgusu"])
@@ -594,13 +610,9 @@ elif st.session_state.page == "Takip":
                             ndf = search_competitors(p['Arama_Sorgusu'], limit=limit)
                             if not ndf.empty:
                                 ndf = calculate_metrics(ndf)
-                                ndf = filter_turkish_content(ndf) # FİLTRE
-                                
-                                if not ndf.empty:
-                                    ai, nxt = generate_smart_analysis(ndf)
-                                    update_product_data(p['Rakipler_Sekme_Adi'], p['Performans_Sekme_Adi'], ndf, ai, ndf['Viral_Skor'].mean(), nxt)
-                                    st.success("Tamam"); st.rerun()
-                                else: st.warning("Veri Türkçe filtresine takıldı.")
+                                ai, nxt = generate_smart_analysis(ndf)
+                                update_product_data(p['Rakipler_Sekme_Adi'], p['Performans_Sekme_Adi'], ndf, ai, ndf['Viral_Skor'].mean(), nxt)
+                                st.success("Tamam"); st.rerun()
                     
                     st.subheader("📋 Rakipler")
                     wanted = ['text', 'playCount', 'Viral_Skor', 'Etkilesim_Orani', 'createTimeISO']
