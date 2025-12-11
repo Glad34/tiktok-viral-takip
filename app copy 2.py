@@ -180,60 +180,17 @@ def search_competitors(query, limit=15):
         st.warning(f"Apify Arama Hatası: {e}")
         return pd.DataFrame()
 
-# --- YENİ: KATI İÇERİK RELEVANSI FİLTRESİ ---
-def filter_content_relevance(df, query):
-    """
-    Sadece Türkçe olmak yetmez, aranan ürünle alakalı mı diye bakar.
-    Örn: 'Bileklik' aranıyorsa, içinde bileklik geçmeyen dua videosunu eler.
-    """
-    if df.empty or not query: return df
-    
-    # 1. Türkçe Filtresi
+# --- TÜRKÇE FİLTRESİ ---
+def filter_turkish_content(df):
+    if df.empty: return df
     tr_chars = ['ı', 'ğ', 'ş', 'ö', 'ç', 'ü', 'İ', 'Ğ', 'Ş', 'Ö', 'Ç', 'Ü']
-    # Ticari kelimeler (Bu kelimeler varsa ürün olma ihtimali yüksek)
-    commerce_keywords = ["fiyat", "kargo", "sipariş", "ne kadar", "link", "profil", "bilgi", "dm", "satış", "bedava", "indirim", "tl", "kapıda", "ödeme", "model", "tasarım", "ürün", "adet", "stok", "kampanya"]
-    
-    # Sorgu kelimelerini parçala (Örn: ['ayetel', 'kürsi', 'bilekliği'])
-    query_words = set(query.lower().split())
-    # Çok kısa kelimeleri çıkar (ve, ile, bir vs.)
-    query_words = {w for w in query_words if len(w) > 2}
-    
+    tr_keywords = ["fiyat", "kargo", "sipariş", "ne kadar", "link", "profil", "bilgi", "dm", "satış", "bedava", "indirim", "tl", "kapıda", "ödeme"]
     filtered_rows = []
-    
     for _, row in df.iterrows():
         text = str(row.get('text', '')).lower()
-        
-        # A. Dil Kontrolü
         lang = str(row.get('textLanguage', '')).lower()
-        is_turkish = (lang == 'tr') or any(char in text for char in tr_chars) or any(kw in text for kw in commerce_keywords)
-        
-        if not is_turkish:
-            continue
-
-        # B. Alaka Düzeyi (Relevance) Kontrolü
-        # Aranan kelimelerin metinde geçme oranı
-        match_count = sum(1 for w in query_words if w in text)
-        
-        # Eğer sorgu tek kelimeyse (örn: "bileklik") o kelime mutlaka geçmeli
-        if len(query_words) == 1:
-            if match_count == 1:
-                filtered_rows.append(row)
-        else:
-            # Çok kelimeli sorguda (örn: "ayetel kürsi bilekliği")
-            # En azından yarısı geçmeli VEYA ticari bir kelimeyle desteklenmeli
-            is_relevant = False
-            
-            # Kelimelerin %50'sinden fazlası geçiyor mu?
-            if len(query_words) > 0 and (match_count / len(query_words) >= 0.5):
-                is_relevant = True
-            
-            # VEYA: Aranan kelimelerden BİRİ geçiyor VE Ticari kelime geçiyor (Örn: "Bileklik modelleri fiyat")
-            if match_count > 0 and any(ck in text for ck in commerce_keywords):
-                is_relevant = True
-                
-            if is_relevant:
-                filtered_rows.append(row)
-            
+        if lang == 'tr' or any(char in text for char in tr_chars) or any(kw in text for kw in tr_keywords):
+            filtered_rows.append(row)
     return pd.DataFrame(filtered_rows)
 
 def run_google_scraper(query, limit=20):
@@ -426,7 +383,6 @@ if st.session_state.page == "Viral":
         **Ne Yapar?** TikTok genel arama sonuçlarını tarar.
         **Tüm Zamanlar Modu:** İzlenme limiti yoktur. Tüm tarihleri getirir.
         **7 ve 30 Gün Modu:** Sadece 1000+ izlenmiş taze içerikleri getirir.
-        **Alaka Filtresi:** Aranan ürünle alakasız (sadece dua vb.) videoları eler, ticari olanları (bileklik vb.) getirir.
         """)
 
     search_type = st.radio("Tip:", ["Kategoriden Seç", "Manuel"], horizontal=True)
@@ -436,7 +392,7 @@ if st.session_state.page == "Viral":
     else: 
         with c1: query_inp = st.text_input("Arama:", placeholder="örn: kapıda ödeme")
     
-    # "Tüm Zamanlar" Seçeneği Mevcut
+    # YENİ EKLENEN FİLTRE: "Tüm Zamanlar"
     with c2: day_filter = st.selectbox("Zaman:", ["Son 7 Gün", "Son 30 Gün", "Tüm Zamanlar"], index=1)
     
     if st.button("🔍 Ürünleri Ara"):
@@ -446,27 +402,29 @@ if st.session_state.page == "Viral":
                 df = search_competitors(q, limit=50)
                 if not df.empty:
                     df = calculate_metrics(df)
-                    
-                    # YENİ EKLENEN AKILLI FİLTRE BURADA ÇAĞRILIYOR
-                    df = filter_content_relevance(df, q) 
+                    df = filter_turkish_content(df) # FİLTRE
                     
                     if not df.empty:
                         today = datetime.now()
                         
+                        # --- FİLTRELEME MANTIĞI (GÜNCELLENDİ) ---
                         if day_filter == "Son 7 Gün":
                             if 'createTimeISO' in df.columns: df = df[df['createTimeISO'] >= (today - timedelta(days=7))]
-                            df = df[df['playCount'] > 1000]
+                            df = df[df['playCount'] > 1000] # Kalite Filtresi
+                        
                         elif day_filter == "Son 30 Gün":
                             if 'createTimeISO' in df.columns: df = df[df['createTimeISO'] >= (today - timedelta(days=30))]
-                            df = df[df['playCount'] > 1000]
-                        else: # Tüm Zamanlar
+                            df = df[df['playCount'] > 1000] # Kalite Filtresi
+                        
+                        else: # "Tüm Zamanlar"
+                            # Tarih ve izlenme filtresi UYGULANMAZ
                             pass 
 
                         if not df.empty:
                             st.session_state.discovery_results = df.sort_values(by='Viral_Skor', ascending=False).head(20)
                         else:
-                            st.warning("Bu kriterlere uygun içerik bulunamadı.")
-                    else: st.warning(f"'{q}' için içerik bulundu ama ürünle alakalı değil (Filtreye takıldı).")
+                            st.warning("Bu tarih aralığında kriterlere uygun içerik yok.")
+                    else: st.warning(f"'{q}' için içerik bulundu ama Türkçe filtresine takıldı.")
                 else: st.warning("Bulunamadı.")
     
     if st.session_state.discovery_results is not None:
@@ -500,7 +458,12 @@ elif st.session_state.page == "Analiz":
     with st.expander("ℹ️ Çalışma Prensibi"):
         st.markdown("""
         **Ne Yapar?** Tek bir ürünün TikTok'taki rekabet durumunu derinlemesine analiz eder.
-        **Filtre:** Ürün adıyla alakasız videoları eler.
+        
+        **Nasıl Çalışır?**
+        1. **İsim Bulma:** Verdiğiniz URL'deki videonun açıklamasını okur ve ürün adını temizler (Örn: "Dyson V15 Süpürge").
+        2. **Rakip Tarama:** Bu ürün adıyla TikTok'ta arama yapar ve en çok izlenen (Top) 15 rakip videoyu çeker.
+        3. **Hesaplama:** Tüm rakiplerin verilerini toplar; Ortalama Viral Skor, Etkileşim Oranı ve "Winner" (Kazanan) durumunu belirler.
+        4. **AI Yorumu:** Verilere bakarak "Bu ürün pazarda güçlü mü?" sorusuna yanıt veren bir özet metin yazar.
         """)
 
     val = st.session_state.transfer_url
@@ -519,16 +482,13 @@ elif st.session_state.page == "Analiz":
                 df = search_competitors(q, limit=15)
                 if not df.empty:
                     df = calculate_metrics(df)
-                    
-                    # BURADA DA YENİ FİLTREYİ KULLANIYORUZ
-                    df = filter_content_relevance(df, q) 
-                    
+                    df = filter_turkish_content(df) # FİLTRE
                     if not df.empty:
                         ai, nxt = generate_smart_analysis(df)
                         st.session_state.analyzed_data = df
-                        st.session_state.analysis_meta = {"q": q, "u": u, "ai": ai, "date": nxt, "score": df['Karar_Puani'].mean(), "viral": df['Viral_Skor'].mean(), "status": "WINNER 🏆" if df['Karar_Puani'].mean()>=60 else "NORMAL"}
+                        st.session_state.analysis_meta = {"query": q, "url": u, "ai": ai, "date": nxt, "score": df['Karar_Puani'].mean(), "viral": df['Viral_Skor'].mean(), "status": "WINNER 🏆" if df['Karar_Puani'].mean()>=60 else "NORMAL"}
                         st.session_state.transfer_url = ""; st.session_state.auto_start = False
-                    else: st.error("Rakip bulundu ama ürünle alakalı değil.")
+                    else: st.error("Rakip bulundu ama Türkçe değil.")
                 else: st.error("Rakip bulunamadı.")
     
     if st.button("Analiz Et") and url: run_anl(url, name)
@@ -550,7 +510,7 @@ elif st.session_state.page == "Analiz":
             st.info(f"Kontrol: {m['date']}") 
             st.markdown(m['ai'])
             if st.button("💾 TEMİZLENMİŞ KAYDET"):
-                if save_to_tracking_sheet(m['q'], m['u'], m['q'], df, m['ai'], curr_v, m['status'], m['date']):
+                if save_to_tracking_sheet(m['query'], m['url'], m['query'], df, m['ai'], curr_v, m['status'], m['date']):
                     st.success("Kaydedildi!"); time.sleep(1); st.session_state.analyzed_data = None; st.rerun()
         with c2:
             st.subheader(f"📋 Analiz ({len(df)})")
@@ -620,19 +580,11 @@ elif st.session_state.page == "Takip":
                     cm, cs = st.columns(2)
                     with cm:
                         if st.button("📢 Meta Tara", use_container_width=True):
-                            # Genişletilmiş Meta Araması
-                            q1 = f'{p["Arama_Sorgusu"]} site:facebook.com OR site:instagram.com "sponsorlu" OR "shop" OR "fiyat"'
-                            q2 = f'{p["Arama_Sorgusu"]} "reklam kütüphanesi" OR "ad library" site:facebook.com'
-                            all_meta = pd.DataFrame()
-                            with st.status("Meta taranıyor..."):
-                                df1 = run_google_scraper(q1, 20)
-                                df2 = run_google_scraper(q2, 20)
-                                all_meta = pd.concat([df1, df2], ignore_index=True)
-                            
-                            if not all_meta.empty:
-                                all_meta = all_meta.drop_duplicates(subset=['url'])
-                                rows = [[str(p['ID']), str(datetime.now().date()), prod, r.get('title',''), r.get('url',''), r.get('description',''), "Meta"] for _, r in all_meta.iterrows()]
-                                save_extra_results("Meta_Results", rows); st.success(f"{len(rows)} bulundu!"); time.sleep(1); st.rerun()
+                            mq = f'"{p["Arama_Sorgusu"]}" site:facebook.com OR site:instagram.com "fiyat" OR "sipariş"'
+                            dfm = run_google_scraper(mq, 10)
+                            if not dfm.empty:
+                                rows = [[str(p['ID']), str(datetime.now().date()), prod, r.get('title',''), r.get('url',''), r.get('description',''), "Meta"] for _, r in dfm.iterrows()]
+                                save_extra_results("Meta_Results", rows); st.success("Bulundu!"); time.sleep(1); st.rerun()
                             else: st.warning("Yok.")
                     with cs:
                         if st.button("🏭 Tedarikçi Tara", use_container_width=True):
@@ -658,15 +610,9 @@ elif st.session_state.page == "Takip":
                             ndf = search_competitors(p['Arama_Sorgusu'], limit=limit)
                             if not ndf.empty:
                                 ndf = calculate_metrics(ndf)
-                                # Güncellemede de filtreyi uygula
-                                ndf = filter_content_relevance(ndf, p['Arama_Sorgusu'])
-                                
-                                if not ndf.empty:
-                                    ai, nxt = generate_smart_analysis(ndf)
-                                    update_product_data(p['Rakipler_Sekme_Adi'], p['Performans_Sekme_Adi'], ndf, ai, ndf['Viral_Skor'].mean(), nxt)
-                                    st.success("Tamam"); st.rerun()
-                                else:
-                                    st.warning("Veri Türkçe filtresine takıldı.")
+                                ai, nxt = generate_smart_analysis(ndf)
+                                update_product_data(p['Rakipler_Sekme_Adi'], p['Performans_Sekme_Adi'], ndf, ai, ndf['Viral_Skor'].mean(), nxt)
+                                st.success("Tamam"); st.rerun()
                     
                     st.subheader("📋 Rakipler")
                     wanted = ['text', 'playCount', 'Viral_Skor', 'Etkilesim_Orani', 'createTimeISO']
@@ -689,6 +635,17 @@ elif st.session_state.page == "Depo":
 # ----------------- 5. META SPY -----------------
 elif st.session_state.page == "Meta_Spy":
     st.title("📢 Meta Reklam Gözcüsü")
+    
+    with st.expander("ℹ️ Çalışma Prensibi"):
+        st.markdown("""
+        **Ne Yapar?** Google üzerinden Facebook ve Instagram'daki reklam izlerini tarar.
+        
+        **Nasıl Çalışır?**
+        1. **Arama:** Girilen ürün adını `site:facebook.com` ve `site:instagram.com` operatörleriyle Google'da aratır.
+        2. **Sihirli Kelimeler:** Sadece içinde "Sponsorlu", "Fiyat", "Shop" veya "Sipariş" geçen sonuçları getirir.
+        3. **Sonuç:** Bu sayede aktif reklam gönderilerini, ürün sayfalarını ve mağaza profillerini listeler.
+        """)
+
     c1, c2 = st.columns([3,1])
     with c1: search_term = st.text_input("Ürün:", placeholder="akıllı saat")
     if st.button("🔍 Ara") and search_term:
@@ -725,6 +682,18 @@ elif st.session_state.page == "Meta_DB":
 # ----------------- 7. TEDARİK -----------------
 elif st.session_state.page == "Tedarik":
     st.title("🏭 Tedarikçi Bulucu (İstihbarat)")
+    
+    with st.expander("ℹ️ Çalışma Prensibi"):
+        st.markdown("""
+        **Ne Yapar?** Sadece gerçek toptancıları bulmak için interneti tarar. Perakendecileri eler.
+        
+        **Nasıl Çalışır?**
+        1. **Çoklu Sorgu:** Ürün adı için 3 farklı arama yapar: 'toptan satış', 'imalatçı firma', 'istoç toptan'.
+        2. **Sıkı Filtre (Strict Filter):** Gelen 100+ sonuçtan; başlığında veya açıklamasında 'toptan', 'koli', 'imalat' kelimesi geçmeyenleri **siler.**
+        3. **Temizlik:** Trendyol, N11, Hepsiburada gibi perakende sitelerini ve sosyal medya linklerini sonuçlardan çıkarır.
+        4. **Sonuç:** Size sadece gerçek B2B (Toptan) tedarikçilerini listeler.
+        """)
+
     c1, c2 = st.columns([3,1])
     with c1: search_term = st.text_input("Ürün:", placeholder="ayetel kürsi bileklik")
     
