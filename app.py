@@ -5,60 +5,64 @@ from datetime import datetime, timedelta
 
 # --- 1. SAYFA AYARLARI ---
 st.set_page_config(
-    page_title="TrendScope TR - Viral Analiz",
+    page_title="TrendScope TR - Ürün Analizi",
     layout="wide",
     page_icon="🚀",
     initial_sidebar_state="expanded"
 )
 
-# --- 2. CSS & TASARIM (KALODATA STİLİ - BEYAZ) ---
-# --- CSS & TASARIM (DÜZELTİLMİŞ) ---
+# --- 2. CSS & TASARIM (BEYAZ TEMA & DÜZGÜN YERLEŞİM) ---
 st.markdown("""
 <style>
-    /* 1. Sayfa Üst Boşluğu Ayarı (DÜZELTME BURADA) */
-    /* 1rem yerine 4rem yapıyoruz ki Header'ın altında kalsın */
+    /* 1. Sayfa Üst Boşluğu (Header'ın altına tam oturması için) */
     .block-container {
-        padding-top: 4rem !important; 
-        padding-bottom: 1rem !important;
+        padding-top: 4rem !important;
+        padding-bottom: 2rem !important;
     }
     
-    /* 2. Menü Butonlarının Tasarımı */
+    /* 2. Navigasyon Butonları */
     div.stButton > button {
         border-radius: 20px;
         border: 1px solid #e0e0e0;
         background-color: #f8f9fa;
         color: #555;
         font-size: 14px;
-        height: 40px; /* Buton yüksekliği */
+        height: 40px;
         width: 100%;
         transition: all 0.3s ease;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
     }
-    
-    /* Hover (Üzerine gelince) */
     div.stButton > button:hover {
         border-color: #007bff;
         color: #007bff;
         background-color: #fff;
         transform: translateY(-2px);
     }
-    
-    /* Aktif/Focus Durumu */
     div.stButton > button:focus:not(:active) {
         border-color: #007bff;
         color: #007bff;
     }
 
-    /* 3. Genel Arka Plan ve Renkler (Light Mode Zorlama) */
+    /* 3. Genel Renkler (Light Mode Zorlama) */
     .stApp {
         background-color: #ffffff !important;
         color: #31333F !important;
     }
+    h1, h2, h3, h4, p, span, div, label {
+        color: #31333F !important;
+    }
     
-    /* 4. Sidebar Düzenlemesi */
+    /* 4. Sidebar */
     section[data-testid="stSidebar"] {
         background-color: #f8f9fa !important;
-        padding-top: 3rem !important; /* Sidebar içeriğini de biraz aşağı alalım */
+        padding-top: 3rem !important;
+        border-right: 1px solid #eee;
+    }
+    
+    /* 5. Input Alanları */
+    .stTextInput input, .stNumberInput input, .stSelectbox div {
+        background-color: #fff !important;
+        color: #333 !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -72,66 +76,81 @@ else:
 
 client = ApifyClient(APIFY_TOKEN)
 
-# --- 4. DATA YÖNETİMİ & NAVIGASYON ---
-
-# Query Parametrelerini Yönetme (Navigation İçin)
+# --- 4. NAVIGASYON MANTIĞI ---
 query_params = st.query_params
-current_tab = query_params.get("tab", "genel")  # Varsayılan tab: genel
+current_page = query_params.get("page", "analiz")
 
-# Header Navigasyon Butonları (HTML ile Pseudo-Linkleme)
-# Streamlit butonları sayfayı yenilediği için query_params setleyip rerun yapıyoruz.
-col_nav1, col_nav2, col_nav3, col_nav4, col_nav5 = st.columns(5)
+# Header Menüsü
+col1, col2, col3, col4 = st.columns([1,1,1,3]) # Son kolon boşluk için
+with col1:
+    if st.button("🚀 Ürün Analizi", use_container_width=True, type="primary" if current_page == "analiz" else "secondary"):
+        st.query_params["page"] = "analiz"
+with col2:
+    if st.button("📝 Blog", use_container_width=True, type="primary" if current_page == "blog" else "secondary"):
+        st.query_params["page"] = "blog"
+with col3:
+    if st.button("📞 İletişim", use_container_width=True, type="primary" if current_page == "iletisim" else "secondary"):
+        st.query_params["page"] = "iletisim"
 
-def set_tab(tab_name):
-    st.query_params["tab"] = tab_name
-    # st.rerun() # Gerekirse sayfayı yeniletmek için açılabilir
+# --- 5. KATEGORİ VE KELİME HAVUZU ---
 
-with col_nav1:
-    if st.button("🌐 Genel", use_container_width=True, type="primary" if current_tab == "genel" else "secondary"):
-        set_tab("genel")
-with col_nav2:
-    if st.button("📢 Reklam", use_container_width=True, type="primary" if current_tab == "reklam" else "secondary"):
-        set_tab("reklam")
-with col_nav3:
-    if st.button("📦 Ürün", use_container_width=True, type="primary" if current_tab == "urun" else "secondary"):
-        set_tab("urun")
-with col_nav4:
-    if st.button("📝 Blog", use_container_width=True, type="primary" if current_tab == "blog" else "secondary"):
-        set_tab("blog")
-with col_nav5:
-    if st.button("📞 İletişim", use_container_width=True, type="primary" if current_tab == "iletisim" else "secondary"):
-        set_tab("iletisim")
-
-# --- 5. KATEGORİLER ---
 CATEGORIES = {
     "Tümü": [],
-    "🏠 Ev & Yaşam": ["mutfak", "düzen", "temizlik", "dekorasyon", "evim", "çeyiz"],
-    "💄 Güzellik & Bakım": ["makyaj", "ciltbakımı", "güzellik", "sacmodelleri", "bakım"],
-    "👗 Moda & Giyim": ["kombin", "moda", "tesettür", "giyim", "stil", "butik"],
-    "💻 Teknoloji & Aksesuar": ["teknoloji", "telefonkilifi", "akıllısaat", "aksesuar", "kulaklık"],
-    "👶 Anne & Bebek": ["bebek", "anne", "hamile", "oyuncak", "bebekgiyim"],
-    "🚗 Oto & Araç": ["araba", "modifiye", "otoaksesuar", "detailing"]
+    "🏠 Ev & Yaşam": ["mutfak", "düzen", "temizlik", "dekorasyon", "çeyiz", "banyo", "pratik"],
+    "💄 Güzellik & Bakım": ["makyaj", "ciltbakımı", "güzellik", "kozmetik", "bakım"],
+    "👗 Moda & Giyim": ["kombin", "moda", "tesettür", "giyim", "butik", "elbise", "ayakkabı"],
+    "💻 Teknoloji & Aksesuar": ["teknoloji", "kılıf", "aksesuar", "kulaklık", "saat", "gadget"],
+    "👶 Anne & Bebek": ["bebek", "oyuncak", "bebekgiyim", "hamile"],
+    "🚗 Oto & Araç": ["otoaksesuar", "araba", "modifiye", "temizlik"]
 }
 
-# --- 6. YARDIMCI FONKSİYONLAR ---
+# Ürün/Satış Sinyali Veren Genişletilmiş Kelime Listesi
+PRODUCT_KEYWORDS = [
+    # Satış İşlemi
+    "sipariş", "fiyat", "kargo", "satın al", "link", "profilde", "bioda", 
+    "stok", "tükenmeden", "kampanya", "indirim", "ücretsiz kargo", 
+    "kapıda ödeme", "kapıda öde", "şeffaf kargo", "whatsapp", "dm", "iletişim", 
+    # Ürün Özellikleri
+    "beden", "renk", "kumaş", "model", "kalite", "garanti", "iade", 
+    "değişim", "takım", "adet", "tl", "₺", "magaza", "butik", "showroom",
+    # Eylem Çağrısı
+    "linke tıkla", "profildeki link", "sipariş için", "bilgi için", "sipariş oluştur"
+]
+
+# --- 6. FONKSİYONLAR ---
 
 def turkce_tarih_format(date_obj):
-    """Datetime objesini Türkçe formatına (7 Ara 2025) çevirir."""
     if pd.isna(date_obj): return ""
-    aylar = {
-        1: "Oca", 2: "Şub", 3: "Mar", 4: "Nis", 5: "May", 6: "Haz",
-        7: "Tem", 8: "Ağu", 9: "Eyl", 10: "Eki", 11: "Kas", 12: "Ara"
-    }
+    aylar = {1: "Oca", 2: "Şub", 3: "Mar", 4: "Nis", 5: "May", 6: "Haz", 7: "Tem", 8: "Ağu", 9: "Eyl", 10: "Eki", 11: "Kas", 12: "Ara"}
     return f"{date_obj.day} {aylar.get(date_obj.month)} {date_obj.year}"
 
-def fetch_tiktok_data(query, limit=50):
+def check_is_product(text):
+    """Metin içinde satış/ürün sinyali veren kelimeler var mı kontrol eder."""
+    if not isinstance(text, str): return False
+    text_lower = text.lower()
+    # Kelime listesinden en az 1 tanesi geçiyorsa True döner
+    for keyword in PRODUCT_KEYWORDS:
+        if keyword in text_lower:
+            return True
+    return False
+
+def fetch_tiktok_data(query, limit):
+    """
+    Apify'dan veri çeker.
+    ÖNEMLİ: Kullanıcı 10 adet istiyorsa, filtrelemelerden sonra azalacağı için
+    Apify'dan 'limit * 3' kadar veri istiyoruz (Buffer Mantığı).
+    """
+    scrape_buffer = limit * 4 # Buffer katsayısını 4 yaptık (daha garanti olsun)
+    if scrape_buffer > 200: scrape_buffer = 200 # Çok aşırı yüklenmeyi engellemek için tavan
+    
     try:
         run_input = {
             "searchQueries": [query],
-            "resultsPerPage": limit,
+            "resultsPerPage": scrape_buffer, # Daha fazla çekiyoruz
             "searchRegion": "TR",
             "searchLanguage": "tr-TR",
         }
+        # Not: free-tiktok-scraper bazen çok yoğun olabilir, alternatif gerekirse burası değişebilir.
         actor_id = "clockworks/free-tiktok-scraper"
         run = client.actor(actor_id).call(run_input=run_input)
         
@@ -140,123 +159,119 @@ def fetch_tiktok_data(query, limit=50):
             return pd.DataFrame(items)
         return pd.DataFrame()
     except Exception as e:
-        st.error(f"⚠️ Apify Bağlantı Hatası: {e}")
+        st.error(f"⚠️ Apify Hatası: {e}")
         return pd.DataFrame()
 
-def process_data(df, min_views, min_likes, date_limit):
+def process_data(df, min_views, min_likes, date_limit, target_limit):
     if df.empty: return df
     
-    # Bölge Filtresi (TR)
+    # 1. Bölge Filtresi (Sadece TR)
     def get_region(meta):
         if isinstance(meta, dict): return meta.get('region', '')
         return ''
-
+    
     if 'authorMeta' in df.columns:
         df['Region_Code'] = df['authorMeta'].apply(get_region)
-        df = df[df['Region_Code'].isin(['TR', 'tr', 'Tr', 'TUR', ''])]
+        df = df[df['Region_Code'].isin(['TR', 'tr', 'TUR', ''])]
+    
+    # 2. Ürün İçeriği Kontrolü (Gelişmiş Kelime Analizi)
+    df['is_product'] = df['text'].apply(check_is_product)
+    df = df[df['is_product'] == True] # Sadece ürün olanları tut
     
     if df.empty: return pd.DataFrame()
 
-    # Sayısal Dönüşümler
+    # 3. Sayısal Dönüşümler
     cols = ['playCount', 'diggCount', 'shareCount', 'collectCount', 'commentCount']
     for col in cols:
-        if col not in df.columns: df[col] = 0
-        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+        df[col] = pd.to_numeric(df.get(col, 0), errors='coerce').fillna(0)
     
-    # Tarih İşlemleri
+    # 4. Metrik Filtreleri
+    df = df[df['playCount'] >= min_views]
+    df = df[df['diggCount'] >= min_likes]
+    
+    # 5. Tarih Filtresi
     if 'createTimeISO' in df.columns:
         df['createTimeISO'] = pd.to_datetime(df['createTimeISO'], errors='coerce', utc=True).dt.tz_localize(None)
         if date_limit:
             cutoff_date = datetime.now() - timedelta(days=date_limit)
             df = df[df['createTimeISO'] >= cutoff_date]
-            
-        # Görselleştirme için Türkçe Tarih Kolonu Ekle
         df['Tarih_Gorsel'] = df['createTimeISO'].apply(turkce_tarih_format)
-    
-    # Metrik Filtreleme
-    df = df[df['playCount'] >= min_views]
-    df = df[df['diggCount'] >= min_likes]
     
     if df.empty: return pd.DataFrame()
 
-    # Hesaplamalar
-    total_interact = df['diggCount'] + df['commentCount'] + df['shareCount']
-    df['Etkilesim_Orani'] = (total_interact / df['playCount'].replace(0, 1)) * 100
+    # 6. Puanlama (Viral Skor)
     df['Viral_Skor'] = ((df['shareCount'] + df['collectCount']) / df['diggCount'].replace(0, 1)) * 100
+    df['Etkilesim_Orani'] = ((df['diggCount'] + df['commentCount'] + df['shareCount']) / df['playCount'].replace(0, 1)) * 100
     
+    df['Viral_Skor'] = df['Viral_Skor'].round(1)
     df['Etkilesim_Orani'] = df['Etkilesim_Orani'].round(2)
-    df['Viral_Skor'] = df['Viral_Skor'].round(2)
     
-    # Görsel Hazırlık
+    # 7. Görselleştirme Sütunları
     df['Resim'] = df['videoMeta'].apply(lambda x: x.get('coverUrl', '') if isinstance(x, dict) else '')
     df['Hesap'] = df['authorMeta'].apply(lambda x: x.get('name', '') if isinstance(x, dict) else '')
-    df['Urun_Tahmin'] = df['text'].apply(lambda x: " ".join(str(x).split()[:7]) + "..." if x else "Başlıksız")
+    df['Urun_Tahmin'] = df['text'].apply(lambda x: " ".join(str(x).split()[:7]) + "..." if x else "")
     
+    # 8. Sıralama ve Limit
+    # En yüksek Viral Skora sahip olanları alıyoruz
     df = df.sort_values(by="Viral_Skor", ascending=False)
-    return df
-
-# --- 7. SIDEBAR VE ARAYÜZ ---
-
-# Blog ve İletişim Sayfaları için Basit Yer Tutucu
-if current_tab == "blog":
-    st.title("📝 Blog Yazıları")
-    st.info("Blog modülü yapım aşamasındadır.")
-    st.stop()
-elif current_tab == "iletisim":
-    st.title("📞 İletişim")
-    st.info("Bize ulasin: info@trendscope.tr")
-    st.stop()
-
-# ANA ANALİZ EKRANI (Genel / Reklam / Ürün)
-with st.sidebar:
-    st.markdown("### 🚀 TrendScope TR")
-    st.caption(f"Mod: **{current_tab.upper()} ANALİZİ**")
     
+    # Kullanıcının istediği adet kadarını kesip veriyoruz (Örn: 10 tane)
+    return df.head(target_limit)
+
+# --- 7. SAYFA İÇERİKLERİ ---
+
+if current_page == "blog":
+    st.title("📝 TrendScope Blog")
+    st.info("E-ticaret trendleri ve analiz ipuçları yakında burada olacak.")
+    st.stop()
+    
+elif current_page == "iletisim":
+    st.title("📞 İletişim")
+    st.markdown("""
+    **TrendScope TR Ekibi**  
+    Sorularınız ve önerileriniz için:  
+    📧 **info@trendscope.tr**
+    """)
+    st.stop()
+
+# --- ANA ANALİZ SAYFASI ---
+with st.sidebar:
+    st.markdown("### 🔍 Filtreler")
     st.markdown("---")
     
-    # Filtreler
-    # 3. İSTEK: 180 Gün Eklendi
-    date_opt = st.selectbox(
-        "📅 Tarih Aralığı",
-        options=[7, 30, 90, 180, 365],
-        format_func=lambda x: f"Son {x} Gün",
-        index=1
-    )
+    # Tarih
+    date_opt = st.selectbox("📅 Tarih Aralığı", [7, 30, 90, 180, 365], index=1, format_func=lambda x: f"Son {x} Gün")
     
-    # 4. İSTEK: Adet Limiti
-    limit_opt = st.number_input("🔢 Maks. Sonuç Adedi", min_value=10, max_value=200, value=50, step=10)
+    # Adet
+    limit_opt = st.number_input("🔢 Gösterilecek Sonuç", min_value=5, max_value=50, value=10, step=5, help="Listelenecek maksimum ürün sayısı.")
     
+    # Kategori
     cat_opt = st.selectbox("📂 Kategori", list(CATEGORIES.keys()))
     
     st.markdown("### 📊 Limitler")
-    min_view_inp = st.number_input("👁️ Min. İzlenme", value=5000, step=1000)
-    min_like_inp = st.number_input("❤️ Min. Beğeni", value=100, step=50)
+    min_view_inp = st.number_input("👁️ Min. İzlenme", value=1000, step=500)
+    min_like_inp = st.number_input("❤️ Min. Beğeni", value=50, step=10)
     
     st.markdown("### 🏷️ Ekstra")
-    hashtag_filter = st.text_input("Hashtag (#)", placeholder="örn: keşfet")
+    hashtag_filter = st.text_input("Hashtag (#)", placeholder="örn: tesettur")
     
-    st.info("💡 Veriler Türkiye konumlu videolardan çekilir.")
+    st.info("ℹ️ Sadece satış/ürün odaklı videolar taranır.")
 
-# Ana İçerik
-col_search_area = st.container()
+# Ana Ekran
+st.title("Türkiye Pazar & Ürün Analizi")
+st.write("TikTok üzerindeki potansiyel 'Winner' ürünleri, reklamları ve fırsatları keşfedin.")
 
-with col_search_area:
-    st.title("Türkiye Pazar Analizi")
-    if current_tab == "reklam":
-        st.caption("Sadece 'işbirliği' ve 'sponsorlu' içeriklere odaklanılır.")
-    elif current_tab == "urun":
-        st.caption("Ürün satışı, fiyat ve sipariş odaklı videolara odaklanılır.")
-        
-    search_query = st.text_input("", placeholder="Ürün, Kelime veya Mağaza ara...", label_visibility="collapsed")
+search_query = st.text_input("", placeholder="Ürün, Kelime veya Mağaza ara... (Örn: Çanta, Abiye, Telefon)", label_visibility="collapsed")
 
-if st.button("🔎 ANALİZ ET VE LİSTELE", use_container_width=True):
+if st.button("🔎 ÜRÜNLERİ BUL", use_container_width=True):
     
-    # Sorgu Mantığı (Tab'a göre değişen strateji)
+    # Sorgu Oluşturma
     final_query = ""
     
-    # 1. Kategori Bazlı
+    # 1. Kategori
     if cat_opt != "Tümü":
         import random
+        # Kategoriden rastgele bir anahtar kelime al
         base_keyword = random.choice(CATEGORIES[cat_opt])
         final_query = f"{base_keyword}"
     
@@ -264,82 +279,75 @@ if st.button("🔎 ANALİZ ET VE LİSTELE", use_container_width=True):
     if search_query:
         final_query = f"{search_query} {final_query}"
         
-    # 3. SAYFA MODUNA GÖRE EKLEMELER (Navigation Logic)
-    if current_tab == "reklam":
-        final_query += " #işbirliği #reklam #sponsor"
-    elif current_tab == "urun":
-        final_query += " sipariş fiyat link kargo"
-    
+    # 3. Ürün Odaklı Ek Kelimeler (Search Query'e eklemek zorunlu değil çünkü process_data içinde filtreliyoruz
+    # Ancak aramayı daraltmak için "inceleme" veya "öneri" gibi genel terimler ekleyebiliriz.
+    if not final_query.strip():
+        final_query = "inceleme öneri sipariş" # Hiçbir şey yazılmazsa genel ürün araması
+        
     # 4. Hashtag
     if hashtag_filter:
         clean_tag = hashtag_filter.replace('#','')
         final_query = f"{final_query} #{clean_tag}"
-        
-    if not final_query.strip():
-        final_query = "inceleme öneri"
 
-    with st.spinner(f"📡 '{final_query.strip()}' taranıyor ({current_tab.upper()} Modu)..."):
-        # Limit kullanıcıdan geliyor
-        raw_df = fetch_tiktok_data(final_query, limit=limit_opt) 
-        clean_df = process_data(raw_df, min_view_inp, min_like_inp, date_opt)
+    with st.spinner(f"📡 '{final_query.strip()}' için ürünler taranıyor ve filtreleniyor..."):
+        
+        # Apify'a daha fazla istek atıyoruz (limit_opt * 4)
+        raw_df = fetch_tiktok_data(final_query, limit=limit_opt)
+        
+        # Gelen fazla veriyi filtreleyip, kullanıcı limiti kadarını alıyoruz
+        clean_df = process_data(raw_df, min_view_inp, min_like_inp, date_opt, limit_opt)
         
         if not clean_df.empty:
-            st.session_state.kalodata_results = clean_df
-            st.success(f"✅ {len(clean_df)} video bulundu.")
+            st.session_state.trendscope_results = clean_df
+            st.success(f"✅ Kriterlere uyan {len(clean_df)} adet ürün videosu bulundu.")
         else:
-            st.warning("⚠️ Kriterlere uygun sonuç bulunamadı.")
-            st.session_state.kalodata_results = None
+            st.warning("⚠️ Kriterlere uygun ürün bulunamadı. (Bulunan videolar ürün filtresine veya izlenme limitine takılmış olabilir).")
+            st.session_state.trendscope_results = None
 
-# --- SONUÇ TABLOSU ---
-if 'kalodata_results' in st.session_state and st.session_state.kalodata_results is not None:
-    df = st.session_state.kalodata_results
+# --- SONUÇLARI GÖSTERME ---
+if 'trendscope_results' in st.session_state and st.session_state.trendscope_results is not None:
+    df = st.session_state.trendscope_results
     
-    # İstatistikler
+    # Özet Bantı
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Toplam Video", len(df))
+    m1.metric("Listelenen", len(df))
     m2.metric("Ort. İzlenme", f"{int(df['playCount'].mean()):,}")
     m3.metric("Ort. Viral Skor", f"{df['Viral_Skor'].mean():.1f}")
-    m4.metric("En Yüksek Beğeni", f"{int(df['diggCount'].max()):,}")
+    m4.metric("En Çok Paylaşım", f"{int(df['shareCount'].max()):,}")
     
     st.markdown("---")
     
-    # TABLO
     st.data_editor(
         df[[
             "Resim", 
             "Urun_Tahmin", 
             "Hesap", 
             "Viral_Skor", 
-            "Etkilesim_Orani", 
             "playCount", 
             "diggCount", 
             "shareCount", 
             "webVideoUrl",
-            "Tarih_Gorsel"  # Türkçe Tarih Sütunu
+            "Tarih_Gorsel"
         ]],
         column_config={
             "Resim": st.column_config.ImageColumn("Video", width="small"),
             "Urun_Tahmin": st.column_config.TextColumn("Ürün / İçerik", width="medium"),
-            "Hesap": st.column_config.TextColumn("Mağaza", width="small"),
-            "Viral_Skor": st.column_config.ProgressColumn(
-                "Viral Puanı", format="%.1f", min_value=0, max_value=100
-            ),
-            "Etkilesim_Orani": st.column_config.NumberColumn("Etkileşim %", format="%.2f %%"),
+            "Hesap": st.column_config.TextColumn("Satıcı/Mağaza", width="small"),
+            "Viral_Skor": st.column_config.ProgressColumn("Viral Gücü", format="%.1f", min_value=0, max_value=100),
             "playCount": st.column_config.NumberColumn("İzlenme", format="%d"),
             "diggCount": st.column_config.NumberColumn("Beğeni", format="%d"),
             "shareCount": st.column_config.NumberColumn("Paylaşım", format="%d"),
             "webVideoUrl": st.column_config.LinkColumn("Link", display_text="İzle ▶️"),
-            "Tarih_Gorsel": st.column_config.TextColumn("Yayın Tarihi") # Metin olarak gösteriyoruz
+            "Tarih_Gorsel": st.column_config.TextColumn("Tarih")
         },
         use_container_width=True,
         hide_index=True,
-        height=700 
+        height=800
     )
 else:
-    # Boş Durum
-    st.markdown(f"""
-    <div style='text-align: center; color: #888; padding: 50px; background-color:#f9f9f9; border-radius:10px;'>
-        <h3>Henüz veri yok ({current_tab.capitalize()})</h3>
-        <p>Sol taraftan kriterleri seç ve <b>ANALİZ ET</b> butonuna bas.</p>
+    st.markdown("""
+    <div style='text-align: center; color: #888; padding: 60px; background-color:#f9f9f9; border-radius:12px; margin-top:20px;'>
+        <h3>Henüz Analiz Yapılmadı</h3>
+        <p>Sol taraftan kategori seçin veya bir ürün adı yazın, ardından <b>ÜRÜNLERİ BUL</b> butonuna basın.</p>
     </div>
     """, unsafe_allow_html=True)
