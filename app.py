@@ -12,73 +12,53 @@ st.set_page_config(
 )
 
 # --- 2. CSS & TASARIM (KALODATA STİLİ - BEYAZ) ---
+# --- CSS & TASARIM (DÜZELTİLMİŞ) ---
 st.markdown("""
 <style>
-    /* Genel Arka Plan ve Font */
-    .stApp {
-        background-color: #ffffff;
-        font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    /* 1. Sayfa Üst Boşluğu Ayarı (DÜZELTME BURADA) */
+    /* 1rem yerine 4rem yapıyoruz ki Header'ın altında kalsın */
+    .block-container {
+        padding-top: 4rem !important; 
+        padding-bottom: 1rem !important;
     }
     
-    /* Üst Menü (Header) Stili */
-    .nav-container {
-        display: flex;
-        justify-content: center;
-        gap: 20px;
-        padding: 10px 0;
+    /* 2. Menü Butonlarının Tasarımı */
+    div.stButton > button {
+        border-radius: 20px;
+        border: 1px solid #e0e0e0;
         background-color: #f8f9fa;
-        border-bottom: 1px solid #ddd;
-        margin-bottom: 20px;
-        border-radius: 8px;
-        margin-top: 20px;
-    }
-    .nav-item {
-        text-decoration: none;
         color: #555;
-        font-weight: 600;
-        padding: 8px 16px;
-        border-radius: 5px;
-        transition: all 0.3s;
+        font-size: 14px;
+        height: 40px; /* Buton yüksekliği */
+        width: 100%;
+        transition: all 0.3s ease;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.08);
     }
-    .nav-item:hover {
-        background-color: #e2e6ea;
+    
+    /* Hover (Üzerine gelince) */
+    div.stButton > button:hover {
+        border-color: #007bff;
+        color: #007bff;
+        background-color: #fff;
+        transform: translateY(-2px);
+    }
+    
+    /* Aktif/Focus Durumu */
+    div.stButton > button:focus:not(:active) {
+        border-color: #007bff;
         color: #007bff;
     }
-    .nav-active {
-        background-color: #007bff;
-        color: white !important;
+
+    /* 3. Genel Arka Plan ve Renkler (Light Mode Zorlama) */
+    .stApp {
+        background-color: #ffffff !important;
+        color: #31333F !important;
     }
     
-    /* Sidebar Düzenlemeleri */
+    /* 4. Sidebar Düzenlemesi */
     section[data-testid="stSidebar"] {
-        background-color: #fcfcfc;
-        border-right: 1px solid #eee;
-    }
-    
-    /* Tablo Başlıkları ve Hücreler */
-    thead tr th {
-        background-color: #f1f3f5 !important;
-        color: #333 !important;
-    }
-    
-    /* Boşlukları Azaltma (Ekrana Sığdırma) */
-    .block-container {
-        padding-top: 1rem !important; /* Varsayılan boşluğu yok ettik */
-        margin-top: 0rem !important;
-    }
-    
-    /* Buton Stili */
-    .stButton>button {
-        background-color: #007bff;
-        color: white;
-        border-radius: 6px;
-        font-weight: bold;
-        border: none;
-        width: 100%;
-    }
-    .stButton>button:hover {
-        background-color: #0056b3;
-        color: white;
+        background-color: #f8f9fa !important;
+        padding-top: 3rem !important; /* Sidebar içeriğini de biraz aşağı alalım */
     }
 </style>
 """, unsafe_allow_html=True)
