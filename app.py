@@ -62,8 +62,8 @@ st.markdown("""
     
     /* Boşlukları Azaltma (Ekrana Sığdırma) */
     .block-container {
-        padding-top: 1rem;
-        padding-bottom: 1rem;
+        padding-top: 1rem !important; /* Varsayılan boşluğu yok ettik */
+        margin-top: 0rem !important;
     }
     
     /* Buton Stili */
