@@ -30,6 +30,7 @@ st.markdown("""
         border-bottom: 1px solid #ddd;
         margin-bottom: 20px;
         border-radius: 8px;
+        margin-top: 20px;
     }
     .nav-item {
         text-decoration: none;
