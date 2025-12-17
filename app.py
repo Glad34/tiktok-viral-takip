@@ -89,11 +89,10 @@ PRODUCT_KEYWORDS = [
 ]
 
 # Yabancı İçerik Engelleyici (Burası Negatif Filtre)
-# Eğer videoda bu kelimeler varsa, TR filtresinden geçse bile sileriz.
 FOREIGN_KEYWORDS = [
     "price", "shipping", "link in bio", "order now", "free shipping", 
     "dollar", "usd", "euro", "shop now", "discount", "sale", "amazon find",
-    "tiktokmademebuyit", "fypシ", "xyzbca" # Global spam tagleri bazen elemeye yardımcı olur ama dikkatli kullanım gerek
+    "tiktokmademebuyit", "fypシ", "xyzbca"
 ]
 
 # --- 5. FONKSİYONLAR ---
@@ -113,10 +112,7 @@ def check_is_product_safe(text):
     
     # 1. Yabancı Kontrolü (Kesin Red)
     for bad_word in FOREIGN_KEYWORDS:
-        # Sadece kelime olarak geçiyorsa (örneğin 'sale' kelimesi 'salep' içinde geçmesin diye boşluklu bakılabilir ama şimdilik düz bakıyoruz)
-        # Daha güvenli olması için popüler yabancı terimleri eliyoruz.
         if bad_word in text_lower:
-            # "link" kelimesi hem TR hem ENG olabilir, onu hariç tutalım foreign listeden
             if bad_word == "link": continue 
             if bad_word in ["price", "shipping", "order", "shop"]: 
                 return False
@@ -128,13 +124,14 @@ def check_is_product_safe(text):
             
     return False
 
-def fetch_tiktok_data(query, requested_limit):
+# --- HATA DÜZELTİLEN FONKSİYON ---
+def fetch_tiktok_data(query, limit): # Parametre adı 'limit' olarak düzeltildi
     """
     Kullanıcı 10 tane istiyorsa biz 50 tane çekelim ki (Buffer),
     filtrelerden sonra el boş dönmeyelim.
     """
-    buffer_limit = requested_limit * 5 
-    if buffer_limit > 300: buffer_limit = 300 # Apify limiti koruması
+    buffer_limit = limit * 5 
+    if buffer_limit > 300: buffer_limit = 300 
     
     try:
         run_input = {
@@ -164,8 +161,6 @@ def process_data(df, min_views, min_likes, date_limit, target_limit):
     
     if 'authorMeta' in df.columns:
         df['Region_Code'] = df['authorMeta'].apply(get_region)
-        # US, GB, DE gibi kesin yabancı olanları atıyoruz. 
-        # TR veya Boş ('') olanları tutuyoruz (Boş olanları aşağıda metin analizi ile kontrol edeceğiz)
         df = df[~df['Region_Code'].isin(['US', 'GB', 'DE', 'FR', 'IT', 'ES', 'BR', 'RU'])]
     
     # 2. Metin Analizi (Ürün mü? Türkçe mi?)
@@ -252,6 +247,7 @@ if st.button("🔎 ÜRÜNLERİ BUL", use_container_width=True):
 
     with st.spinner(f"📡 '{final_query.strip()}' için veriler taranıyor..."):
         # Apify'dan veri çek
+        # DÜZELTME BURADA YAPILDI: limit parametresi doğru gönderiliyor
         raw_df = fetch_tiktok_data(final_query, limit=limit_opt)
         
         # Veriyi işle
